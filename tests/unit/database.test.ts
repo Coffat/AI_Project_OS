@@ -11,36 +11,52 @@ describe('Database Module', () => {
     }
   });
 
-  it('should initialize schema in-memory successfully', () => {
+  it('should run migrations and initialize all 17 tables in-memory', () => {
     client = new SQLiteDatabaseClient(':memory:');
-    client.initializeSchema();
 
-    // Verify tables exist
+    // Verify all 17 tables + _migrations exist
     const tables = client.db
       .prepare("SELECT name FROM sqlite_master WHERE type='table'")
       .all() as Array<{ name: string }>;
 
     const tableNames = tables.map((t) => t.name);
-    expect(tableNames).toContain('projects');
-    expect(tableNames).toContain('tasks');
-    expect(tableNames).toContain('task_checkpoints');
-    expect(tableNames).toContain('handoffs');
-    expect(tableNames).toContain('project_memory');
-    expect(tableNames).toContain('graph_nodes');
-    expect(tableNames).toContain('graph_edges');
-    expect(tableNames).toContain('fts_project_memory');
-    expect(tableNames).toContain('fts_code_symbols');
+    const expectedTables = [
+      '_migrations',
+      'projects',
+      'tasks',
+      'task_steps',
+      'task_checkpoints',
+      'handoffs',
+      'decisions',
+      'constraints',
+      'memory_documents',
+      'memory_chunks',
+      'files',
+      'symbols',
+      'graph_nodes',
+      'graph_edges',
+      'events',
+      'research_documents',
+      'proposals',
+      'validation_runs',
+      'agent_sessions',
+      'fts_memory_chunks',
+      'fts_symbols',
+    ];
+
+    for (const expected of expectedTables) {
+      expect(tableNames).toContain(expected);
+    }
   });
 
   it('should enforce foreign key constraints', () => {
     client = new SQLiteDatabaseClient(':memory:');
-    client.initializeSchema();
 
     // Inserting a task with non-existent project_id should fail
     expect(() => {
       client!.db.prepare(`
         INSERT INTO tasks (id, project_id, title, status, priority, created_at, updated_at)
-        VALUES ('t1', 'non_existent_project', 'Sample', 'BACKLOG', 'MEDIUM', 1000, 1000)
+        VALUES ('t1', 'non_existent_project', 'Sample', 'planned', 'medium', 1000, 1000)
       `).run();
     }).toThrow();
   });

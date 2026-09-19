@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { Task, TaskStatus, TaskPriority, TaskCheckpoint } from '../core/types.js';
 import { TaskNotFoundError, ValidationError } from '../core/errors.js';
 import { globalEventBus } from '../core/events.js';
+import { TaskRepository, CreateTaskParams } from '../database/repositories/task.repository.js';
 import { randomUUID } from 'node:crypto';
 
 export interface CreateTaskDTO {
@@ -11,7 +12,6 @@ export interface CreateTaskDTO {
   priority?: TaskPriority;
   assignedAgent?: string;
   parentTaskId?: string;
-  acceptanceCriteria?: string;
 }
 
 export interface ITaskEngine {
@@ -28,78 +28,34 @@ export interface ITaskEngine {
 }
 
 export class TaskEngine implements ITaskEngine {
-  constructor(private readonly db: DatabaseSync) {}
+  private readonly repo: TaskRepository;
+
+  constructor(private readonly db: DatabaseSync) {
+    this.repo = new TaskRepository(db);
+  }
 
   public async createTask(dto: CreateTaskDTO): Promise<Task> {
-    if (!dto.title || dto.title.trim() === '') {
-      throw new ValidationError('Task title cannot be empty');
-    }
-
-    const now = Date.now();
-    const task: Task = {
-      id: randomUUID(),
-      projectId: dto.projectId,
-      title: dto.title.trim(),
-      description: dto.description,
-      status: 'BACKLOG',
-      assignedAgent: dto.assignedAgent,
-      priority: dto.priority ?? 'MEDIUM',
-      parentTaskId: dto.parentTaskId,
-      acceptanceCriteria: dto.acceptanceCriteria,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    const stmt = this.db.prepare(`
-      INSERT INTO tasks (
-        id, project_id, title, description, status, assigned_agent, priority,
-        parent_task_id, acceptance_criteria, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    stmt.run(
-      task.id,
-      task.projectId,
-      task.title,
-      task.description ?? null,
-      task.status,
-      task.assignedAgent ?? null,
-      task.priority,
-      task.parentTaskId ?? null,
-      task.acceptanceCriteria ?? null,
-      task.createdAt,
-      task.updatedAt
-    );
-
+    const task = this.repo.create(dto as CreateTaskParams);
     await globalEventBus.publish('task:created', task);
     return task;
   }
 
   public async getTask(taskId: string): Promise<Task> {
-    const stmt = this.db.prepare('SELECT * FROM tasks WHERE id = ?');
-    const row = stmt.get(taskId) as Record<string, unknown> | undefined;
-
-    if (!row) {
+    const task = this.repo.findById(taskId);
+    if (!task) {
       throw new TaskNotFoundError(taskId);
     }
-
-    return this.mapRowToTask(row);
+    return task;
   }
 
   public async updateTaskStatus(taskId: string, status: TaskStatus): Promise<Task> {
-    const existing = await this.getTask(taskId);
-    const now = Date.now();
-
-    const stmt = this.db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?');
-    stmt.run(status, now, taskId);
-
-    const updated: Task = {
-      ...existing,
-      status,
-      updatedAt: now,
-    };
-
-    await globalEventBus.publish('task:status_changed', { taskId, previous: existing.status, current: status });
+    const previous = await this.getTask(taskId);
+    const updated = this.repo.transitionStatus(taskId, status);
+    await globalEventBus.publish('task:status_changed', {
+      taskId,
+      previous: previous.status,
+      current: status,
+    });
     return updated;
   }
 
@@ -144,6 +100,9 @@ export class TaskEngine implements ITaskEngine {
   }
 
   public async listTasks(filter?: { status?: TaskStatus; projectId?: string }): Promise<Task[]> {
+    if (filter?.projectId) {
+      return this.repo.listByProject(filter.projectId, { status: filter.status });
+    }
     let query = 'SELECT * FROM tasks WHERE 1=1';
     const params: (string | number)[] = [];
 
@@ -151,31 +110,23 @@ export class TaskEngine implements ITaskEngine {
       query += ' AND status = ?';
       params.push(filter.status);
     }
-    if (filter?.projectId) {
-      query += ' AND project_id = ?';
-      params.push(filter.projectId);
-    }
 
     query += ' ORDER BY created_at DESC';
     const stmt = this.db.prepare(query);
     const rows = stmt.all(...params) as Record<string, unknown>[];
 
-    return rows.map((r) => this.mapRowToTask(r));
-  }
-
-  private mapRowToTask(row: Record<string, unknown>): Task {
-    return {
-      id: String(row['id']),
-      projectId: String(row['project_id']),
-      title: String(row['title']),
-      description: row['description'] ? String(row['description']) : undefined,
-      status: row['status'] as TaskStatus,
-      assignedAgent: row['assigned_agent'] ? String(row['assigned_agent']) : undefined,
-      priority: row['priority'] as TaskPriority,
-      parentTaskId: row['parent_task_id'] ? String(row['parent_task_id']) : undefined,
-      acceptanceCriteria: row['acceptance_criteria'] ? String(row['acceptance_criteria']) : undefined,
-      createdAt: Number(row['created_at']),
-      updatedAt: Number(row['updated_at']),
-    };
+    return rows.map((r) => ({
+      id: String(r['id']),
+      projectId: String(r['project_id']),
+      title: String(r['title']),
+      description: r['description'] ? String(r['description']) : undefined,
+      status: r['status'] as TaskStatus,
+      priority: r['priority'] as TaskPriority,
+      assignedAgent: r['assigned_agent'] ? String(r['assigned_agent']) : undefined,
+      parentTaskId: r['parent_task_id'] ? String(r['parent_task_id']) : undefined,
+      version: Number(r['version']),
+      createdAt: Number(r['created_at']),
+      updatedAt: Number(r['updated_at']),
+    }));
   }
 }

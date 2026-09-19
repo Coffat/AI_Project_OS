@@ -1,6 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-
-export type SymbolKind = 'FUNCTION' | 'CLASS' | 'INTERFACE' | 'VARIABLE' | 'METHOD';
+import { SymbolKind } from '../core/types.js';
 
 export interface SymbolDefinition {
   nodeId: string;
@@ -54,7 +53,7 @@ export class CodeIntelligenceEngine implements ICodeIntelligenceEngine {
         identifier: String(r['identifier']),
         label: String(r['label']),
         filePath: String(r['file_path']),
-        kind: 'FUNCTION' as SymbolKind,
+        kind: 'function' as SymbolKind,
         documentation: r['documentation'] ? String(r['documentation']) : undefined,
         lineStart: 1,
         lineEnd: 1,

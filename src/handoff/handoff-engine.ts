@@ -1,112 +1,76 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { HandoffReport } from '../core/types.js';
-import { ValidationError } from '../core/errors.js';
+import { HandoffRecord } from '../core/types.js';
 import { globalEventBus } from '../core/events.js';
-import { randomUUID } from 'node:crypto';
+import { HandoffRepository, CreateHandoffParams } from '../database/repositories/handoff.repository.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-export interface CreateHandoffDTO {
-  taskId: string;
-  fromAgent: string;
-  statusSummary: string;
-  blockers?: string;
-  nextSteps: string;
-  contextSnapshotJson?: string;
-}
+export type CreateHandoffDTO = CreateHandoffParams;
 
 export interface IHandoffEngine {
-  recordHandoff(dto: CreateHandoffDTO): Promise<HandoffReport>;
-  getLatestHandoff(taskId: string): Promise<HandoffReport | null>;
-  generateMarkdownHandoff(report: HandoffReport): string;
-  persistHandoffToDisk(projectRoot: string, report: HandoffReport): Promise<string>;
+  recordHandoff(dto: CreateHandoffDTO): Promise<HandoffRecord>;
+  getLatestHandoff(taskId: string): Promise<HandoffRecord | null>;
+  generateMarkdownHandoff(report: HandoffRecord): string;
+  persistHandoffToDisk(projectRoot: string, report: HandoffRecord): Promise<string>;
 }
 
 export class HandoffEngine implements IHandoffEngine {
-  constructor(private readonly db: DatabaseSync) {}
+  private readonly repo: HandoffRepository;
 
-  public async recordHandoff(dto: CreateHandoffDTO): Promise<HandoffReport> {
-    if (!dto.statusSummary || dto.statusSummary.trim() === '') {
-      throw new ValidationError('Handoff status summary is required');
-    }
-    if (!dto.nextSteps || dto.nextSteps.trim() === '') {
-      throw new ValidationError('Handoff next steps are required');
-    }
+  constructor(db: DatabaseSync) {
+    this.repo = new HandoffRepository(db);
+  }
 
-    const report: HandoffReport = {
-      id: randomUUID(),
-      taskId: dto.taskId,
-      fromAgent: dto.fromAgent,
-      statusSummary: dto.statusSummary.trim(),
-      blockers: dto.blockers?.trim(),
-      nextSteps: dto.nextSteps.trim(),
-      contextSnapshotJson: dto.contextSnapshotJson,
-      createdAt: Date.now(),
-    };
-
-    const stmt = this.db.prepare(`
-      INSERT INTO handoffs (id, task_id, from_agent, status_summary, blockers, next_steps, context_snapshot_json, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    stmt.run(
-      report.id,
-      report.taskId,
-      report.fromAgent,
-      report.statusSummary,
-      report.blockers ?? null,
-      report.nextSteps,
-      report.contextSnapshotJson ?? null,
-      report.createdAt
-    );
-
+  public async recordHandoff(dto: CreateHandoffDTO): Promise<HandoffRecord> {
+    const report = this.repo.create(dto);
     await globalEventBus.publish('handoff:recorded', report);
     return report;
   }
 
-  public async getLatestHandoff(taskId: string): Promise<HandoffReport | null> {
-    const stmt = this.db.prepare(
-      'SELECT * FROM handoffs WHERE task_id = ? ORDER BY created_at DESC LIMIT 1'
-    );
-    const row = stmt.get(taskId) as Record<string, unknown> | undefined;
-
-    if (!row) return null;
-
-    return {
-      id: String(row['id']),
-      taskId: String(row['task_id']),
-      fromAgent: String(row['from_agent']),
-      statusSummary: String(row['status_summary']),
-      blockers: row['blockers'] ? String(row['blockers']) : undefined,
-      nextSteps: String(row['next_steps']),
-      contextSnapshotJson: row['context_snapshot_json'] ? String(row['context_snapshot_json']) : undefined,
-      createdAt: Number(row['created_at']),
-    };
+  public async getLatestHandoff(taskId: string): Promise<HandoffRecord | null> {
+    return this.repo.findLatestByTaskId(taskId);
   }
 
-  public generateMarkdownHandoff(report: HandoffReport): string {
+  public generateMarkdownHandoff(report: HandoffRecord): string {
     const dateStr = new Date(report.createdAt).toISOString();
     return `# Handoff Report: Task ${report.taskId}
 
 - **Handoff ID**: ${report.id}
 - **Timestamp**: ${dateStr}
-- **From Agent**: ${report.fromAgent}
+- **From Agent**: ${report.agentIdentity}
 
-## 1. Trạng thái hiện tại (Status Summary)
-${report.statusSummary}
+## 1. Mục tiêu (Objective)
+${report.objective}
 
-## 2. Vấn đề nghẽn / Rủi ro (Blockers)
-${report.blockers && report.blockers.trim() !== '' ? report.blockers : '_Không có rào cản nào ghi nhận._'}
+## 2. Công việc đã hoàn thành (Completed Work)
+${report.completedWork}
 
-## 3. Các bước hành động tiếp theo (Next Steps)
-${report.nextSteps}
+## 3. Vị trí hiện tại (Current Location)
+- **Current Step**: ${report.currentStep ?? '_Chưa xác định_'}
+- **Current File**: ${report.currentFile ?? '_Chưa xác định_'}
+
+## 4. Tệp tin đã chỉnh sửa (Modified Files)
+${report.modifiedFiles.length > 0 ? report.modifiedFiles.map((f) => `- \`${f}\``).join('\n') : '_Không có_'}
+
+## 5. Quyết định đã đưa ra (Decisions)
+${report.decisions.length > 0 ? report.decisions.map((d) => `- ${d}`).join('\n') : '_Không có_'}
+
+## 6. Vấn đề nghẽn & Lỗi (Blockers & Errors)
+- **Blockers**: ${report.blockers ?? '_Không có_'}
+- **Errors**: ${report.errors ?? '_Không có_'}
+
+## 7. Các bài test kiểm tra (Tests)
+${report.tests.length > 0 ? report.tests.map((t) => `- \`${t}\``).join('\n') : '_Chưa có_'}
+
+## 8. Hành động tiếp theo (Next Action)
+${report.nextAction}
 
 ---
 *Báo cáo này được tự động tạo bởi AI PROJECT OS Handoff Engine.*
 `;
   }
 
-  public async persistHandoffToDisk(projectRoot: string, report: HandoffReport): Promise<string> {
+  public async persistHandoffToDisk(projectRoot: string, report: HandoffRecord): Promise<string> {
     const handoffDir = path.join(projectRoot, '.ai', 'handoff');
     await fs.mkdir(handoffDir, { recursive: true });
 

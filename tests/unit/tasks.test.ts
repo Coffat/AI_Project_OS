@@ -10,7 +10,6 @@ describe('TaskEngine', () => {
 
   beforeEach(() => {
     client = new SQLiteDatabaseClient(':memory:');
-    client.initializeSchema();
 
     // Insert sample project
     client.db.prepare(`
@@ -25,18 +24,19 @@ describe('TaskEngine', () => {
     client.close();
   });
 
-  it('should create a new task in BACKLOG status', async () => {
+  it('should create a new task in planned status', async () => {
     const task = await taskEngine.createTask({
       projectId,
       title: 'Implement Task Engine',
       description: 'Create lifecycle logic for tasks',
-      priority: 'HIGH',
+      priority: 'high',
     });
 
     expect(task.id).toBeDefined();
     expect(task.title).toBe('Implement Task Engine');
-    expect(task.status).toBe('BACKLOG');
-    expect(task.priority).toBe('HIGH');
+    expect(task.status).toBe('planned');
+    expect(task.priority).toBe('high');
+    expect(task.version).toBe(1);
   });
 
   it('should reject task creation with empty title', async () => {
@@ -48,17 +48,19 @@ describe('TaskEngine', () => {
     ).rejects.toThrow(ValidationError);
   });
 
-  it('should update task status', async () => {
+  it('should update task status following valid transitions', async () => {
     const task = await taskEngine.createTask({
       projectId,
       title: 'Update Status Test',
     });
 
-    const updated = await taskEngine.updateTaskStatus(task.id, 'IN_PROGRESS');
-    expect(updated.status).toBe('IN_PROGRESS');
+    // planned -> in_progress
+    const updated = await taskEngine.updateTaskStatus(task.id, 'in_progress');
+    expect(updated.status).toBe('in_progress');
+    expect(updated.version).toBe(2);
 
     const fetched = await taskEngine.getTask(task.id);
-    expect(fetched.status).toBe('IN_PROGRESS');
+    expect(fetched.status).toBe('in_progress');
   });
 
   it('should throw TaskNotFoundError when getting non-existent task', async () => {

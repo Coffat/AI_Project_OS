@@ -25,7 +25,7 @@ export abstract class BaseAgentAdapter implements IAgentAdapter {
     const userPrompt = [
       `Active Task: [${context.taskId}] ${context.taskTitle}`,
       context.recentHandoff
-        ? `\n=== PREVIOUS AGENT HANDOFF ===\nFrom: ${context.recentHandoff.fromAgent}\nStatus: ${context.recentHandoff.statusSummary}\nBlockers: ${context.recentHandoff.blockers ?? 'None'}\nNext Steps: ${context.recentHandoff.nextSteps}`
+        ? `\n=== PREVIOUS AGENT HANDOFF ===\nFrom: ${context.recentHandoff.agentIdentity}\nObjective: ${context.recentHandoff.objective}\nCompleted: ${context.recentHandoff.completedWork}\nBlockers: ${context.recentHandoff.blockers ?? 'None'}\nNext Action: ${context.recentHandoff.nextAction}`
         : '',
       context.relevantDecisions.length > 0
         ? `\n=== RELEVANT ARCHITECTURAL DECISIONS ===\n` +

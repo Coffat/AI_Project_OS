@@ -55,12 +55,15 @@ export class ProjectOSMCPServer {
               type: 'object',
               properties: {
                 taskId: { type: 'string' },
-                fromAgent: { type: 'string' },
-                statusSummary: { type: 'string' },
+                agentIdentity: { type: 'string' },
+                objective: { type: 'string' },
+                completedWork: { type: 'string' },
+                nextAction: { type: 'string' },
                 blockers: { type: 'string' },
-                nextSteps: { type: 'string' },
+                currentStep: { type: 'string' },
+                currentFile: { type: 'string' },
               },
-              required: ['taskId', 'fromAgent', 'statusSummary', 'nextSteps'],
+              required: ['taskId', 'agentIdentity', 'objective', 'completedWork', 'nextAction'],
             },
           },
           {
@@ -90,13 +93,21 @@ export class ProjectOSMCPServer {
       }
 
       if (name === 'ai_os_submit_handoff') {
+        const taskId = String(args?.['taskId']);
+        const task = await this.deps.taskEngine.getTask(taskId);
+
         const report = await this.deps.handoffEngine.recordHandoff({
-          taskId: String(args?.['taskId']),
-          fromAgent: String(args?.['fromAgent']),
-          statusSummary: String(args?.['statusSummary']),
+          taskId,
+          projectId: task.projectId,
+          objective: String(args?.['objective'] ?? task.title),
+          completedWork: String(args?.['completedWork'] ?? ''),
+          nextAction: String(args?.['nextAction'] ?? ''),
+          agentIdentity: String(args?.['agentIdentity'] ?? 'UnknownAgent'),
           blockers: args?.['blockers'] ? String(args?.['blockers']) : undefined,
-          nextSteps: String(args?.['nextSteps']),
+          currentStep: args?.['currentStep'] ? String(args?.['currentStep']) : undefined,
+          currentFile: args?.['currentFile'] ? String(args?.['currentFile']) : undefined,
         });
+
         return {
           content: [
             {

@@ -13,9 +13,15 @@ describe('Agent Adapters', () => {
     recentHandoff: {
       id: 'h-1',
       taskId: 't-100',
-      fromAgent: 'Antigravity',
-      statusSummary: 'Scaffolded ports',
-      nextSteps: 'Implement SQLite adapter',
+      projectId: 'p-1',
+      objective: 'Refactor SQLite client with native bindings',
+      completedWork: 'Scaffolded ports',
+      modifiedFiles: [],
+      decisions: [],
+      tests: [],
+      nextAction: 'Implement SQLite adapter',
+      gitState: {},
+      agentIdentity: 'Antigravity',
       createdAt: Date.now(),
     },
     tokenBudget: 4000,
@@ -32,6 +38,7 @@ describe('Agent Adapters', () => {
     expect(envelope.userPrompt).toContain('Active Task: [t-100] Refactor SQLite Client');
     expect(envelope.userPrompt).toContain('=== PREVIOUS AGENT HANDOFF ===');
     expect(envelope.userPrompt).toContain('From: Antigravity');
+    expect(envelope.userPrompt).toContain('Next Action: Implement SQLite adapter');
   });
 
   it('AntigravityAdapter should format context without mutating business logic', () => {

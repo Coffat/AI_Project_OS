@@ -16,11 +16,11 @@ export class ValidationEngine implements IValidationEngine {
   public validateTaskForCompletion(task: Task): ValidationResult {
     const errors: string[] = [];
 
-    if (task.acceptanceCriteria && task.acceptanceCriteria.trim().length > 0) {
-      // Basic rule: must have description if acceptance criteria exists
-      if (!task.description || task.description.trim().length === 0) {
-        errors.push('Task with acceptance criteria must have a detailed description');
-      }
+    if (!task.title || task.title.trim().length === 0) {
+      errors.push('Task must have a non-empty title');
+    }
+    if (task.status === 'done' && (!task.description || task.description.trim().length === 0)) {
+      errors.push('Completed task must have a detailed description of what was accomplished');
     }
 
     return {

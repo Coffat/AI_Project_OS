@@ -50,7 +50,7 @@ export class ContextEngine implements IContextEngine {
         architectureRules.join(' ').length +
         (task.description?.length ?? 0) +
         contextualTitle.length +
-        (recentHandoff?.statusSummary.length ?? 0)) / 4
+        (recentHandoff?.completedWork.length ?? 0)) / 4
     );
 
     return {
