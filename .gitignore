@@ -1,0 +1,40 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Dependency directories
+node_modules/
+
+# Build artifacts
+dist/
+build/
+coverage/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Operating System
+.DS_Store
+Thumbs.db
+
+# SQLite local databases & index caches (not committed)
+.ai/indexes/*.db
+.ai/indexes/*.sqlite
+.ai/indexes/*.sqlite-wal
+.ai/indexes/*.sqlite-shm
+*.db
+*.sqlite
+
+# Tauri build artifacts
+src-tauri/target/
