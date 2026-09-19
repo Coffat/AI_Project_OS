@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { GraphNode, GraphEdge } from '../core/types.js';
 import { GraphRepository } from '../database/repositories/graph.repository.js';
+import { GraphService } from './graph-service.js';
 
 export interface IGraphEngine {
   addNode(node: GraphNode): Promise<void>;
@@ -13,24 +14,30 @@ export interface IGraphEngine {
 }
 
 export class GraphEngine implements IGraphEngine {
+  public readonly service: GraphService;
   private readonly repo: GraphRepository;
 
   constructor(db: DatabaseSync) {
     this.repo = new GraphRepository(db);
+    this.service = new GraphService(this.repo);
   }
 
   public async addNode(node: GraphNode): Promise<void> {
-    this.repo.addNode({
+    await this.service.addNode({
       projectId: node.projectId,
       entityType: node.entityType,
       entityId: node.entityId,
       label: node.label,
+      name: node.name,
+      path: node.path,
+      lineStart: node.lineStart,
+      lineEnd: node.lineEnd,
       metadata: node.metadataJson ? JSON.parse(node.metadataJson) : undefined,
     });
   }
 
   public async addEdge(edge: GraphEdge): Promise<void> {
-    this.repo.addEdge({
+    await this.service.addEdge({
       projectId: edge.projectId,
       sourceNodeId: edge.sourceNodeId,
       targetNodeId: edge.targetNodeId,
@@ -41,7 +48,7 @@ export class GraphEngine implements IGraphEngine {
   }
 
   public async getNode(nodeId: string): Promise<GraphNode | null> {
-    return this.repo.findNodeById(nodeId);
+    return this.service.getNode(nodeId);
   }
 
   public async getNeighbors(
@@ -51,3 +58,4 @@ export class GraphEngine implements IGraphEngine {
     return this.repo.getNeighbors(nodeId, direction);
   }
 }
+

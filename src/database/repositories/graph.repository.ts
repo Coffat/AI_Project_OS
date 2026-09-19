@@ -7,6 +7,7 @@ import {
   GraphEdge,
   GraphEntityType,
   GraphRelationType,
+  GraphIntegrityReport,
 } from '../../core/types.js';
 import { ValidationError } from '../../core/errors.js';
 import { randomUUID } from 'node:crypto';
@@ -264,6 +265,229 @@ export class GraphRepository extends BaseRepository {
     return node;
   }
 
+  public updateNode(id: string, updates: Partial<CreateNodeParams>): GraphNode {
+    const existing = this.findNodeById(id);
+    if (!existing) {
+      throw new ValidationError(`Node with ID ${id} not found`);
+    }
+
+    const label = updates.label ?? existing.label;
+    const name = updates.name !== undefined ? updates.name : existing.name;
+    const path = updates.path !== undefined ? updates.path : existing.path;
+    const lineStart = updates.lineStart !== undefined ? updates.lineStart : existing.lineStart;
+    const lineEnd = updates.lineEnd !== undefined ? updates.lineEnd : existing.lineEnd;
+    const metadataJson = updates.metadata !== undefined
+      ? this.serializeJson(updates.metadata, '{}')
+      : existing.metadataJson;
+
+    const stmt = this.db.prepare(`
+      UPDATE graph_nodes
+      SET label = ?, name = ?, path = ?, line_start = ?, line_end = ?, metadata_json = ?
+      WHERE id = ?
+    `);
+    stmt.run(label, name ?? null, path ?? null, lineStart ?? null, lineEnd ?? null, metadataJson ?? null, id);
+
+    return {
+      ...existing,
+      label,
+      name,
+      path,
+      lineStart,
+      lineEnd,
+      metadataJson,
+    };
+  }
+
+  public removeNode(id: string): boolean {
+    // Delete connected edges first to respect foreign keys or manual cascade
+    const delEdges = this.db.prepare('DELETE FROM graph_edges WHERE source_node_id = ? OR target_node_id = ?');
+    delEdges.run(id, id);
+
+    const stmt = this.db.prepare('DELETE FROM graph_nodes WHERE id = ?');
+    const result = stmt.run(id);
+    return result.changes > 0;
+  }
+
+  public removeEdge(id: string): boolean {
+    const stmt = this.db.prepare('DELETE FROM graph_edges WHERE id = ?');
+    const result = stmt.run(id);
+    return result.changes > 0;
+  }
+
+  public removeEdgeByEndpoints(
+    sourceNodeId: string,
+    targetNodeId: string,
+    relationType?: GraphRelationType
+  ): boolean {
+    let query = 'DELETE FROM graph_edges WHERE source_node_id = ? AND target_node_id = ?';
+    const params: string[] = [sourceNodeId, targetNodeId];
+    if (relationType) {
+      query += ' AND relation_type = ?';
+      params.push(relationType);
+    }
+    const stmt = this.db.prepare(query);
+    const result = stmt.run(...params);
+    return result.changes > 0;
+  }
+
+  public findEdgeById(id: string): GraphEdge | null {
+    const stmt = this.db.prepare('SELECT * FROM graph_edges WHERE id = ?');
+    const row = stmt.get(id) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return this.mapRowToEdge(row);
+  }
+
+  public findEdge(
+    sourceNodeId: string,
+    targetNodeId: string,
+    relationType: GraphRelationType
+  ): GraphEdge | null {
+    const stmt = this.db.prepare(`
+      SELECT * FROM graph_edges
+      WHERE source_node_id = ? AND target_node_id = ? AND relation_type = ?
+    `);
+    const row = stmt.get(sourceNodeId, targetNodeId, relationType) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return this.mapRowToEdge(row);
+  }
+
+  public findNodeByIdOrEntity(projectId: string | undefined, identifier: string): GraphNode | null {
+    // 1. Check direct node id
+    const byId = this.findNodeById(identifier);
+    if (byId) {
+      if (!projectId || byId.projectId === projectId) return byId;
+    }
+
+    // 2. Check entity_id (e.g. TASK-042, DECISION-012, file path, symbol name)
+    if (projectId) {
+      const stmtEntity = this.db.prepare(`
+        SELECT * FROM graph_nodes
+        WHERE project_id = ? AND (entity_id = ? OR label = ? OR name = ? OR path = ?)
+        LIMIT 1
+      `);
+      const rowEntity = stmtEntity.get(projectId, identifier, identifier, identifier, identifier) as Record<string, unknown> | undefined;
+      if (rowEntity) return this.mapRowToNode(rowEntity);
+
+      const stmtPath = this.db.prepare(`
+        SELECT * FROM graph_nodes
+        WHERE project_id = ? AND path LIKE ?
+        LIMIT 1
+      `);
+      const rowPath = stmtPath.get(projectId, `%${identifier}%`) as Record<string, unknown> | undefined;
+      if (rowPath) return this.mapRowToNode(rowPath);
+    } else {
+      const stmtEntity = this.db.prepare(`
+        SELECT * FROM graph_nodes
+        WHERE entity_id = ? OR label = ? OR name = ? OR path = ?
+        LIMIT 1
+      `);
+      const rowEntity = stmtEntity.get(identifier, identifier, identifier, identifier) as Record<string, unknown> | undefined;
+      if (rowEntity) return this.mapRowToNode(rowEntity);
+
+      const stmtPath = this.db.prepare(`
+        SELECT * FROM graph_nodes
+        WHERE path LIKE ?
+        LIMIT 1
+      `);
+      const rowPath = stmtPath.get(`%${identifier}%`) as Record<string, unknown> | undefined;
+      if (rowPath) return this.mapRowToNode(rowPath);
+    }
+
+    return null;
+  }
+
+  public getAllNodes(projectId?: string): GraphNode[] {
+    const query = projectId
+      ? 'SELECT * FROM graph_nodes WHERE project_id = ? ORDER BY created_at ASC'
+      : 'SELECT * FROM graph_nodes ORDER BY created_at ASC';
+    const stmt = this.db.prepare(query);
+    const rows = (projectId ? stmt.all(projectId) : stmt.all()) as Record<string, unknown>[];
+    return rows.map((r) => this.mapRowToNode(r));
+  }
+
+  public getAllEdges(projectId?: string): GraphEdge[] {
+    const query = projectId
+      ? 'SELECT * FROM graph_edges WHERE project_id = ? ORDER BY created_at ASC'
+      : 'SELECT * FROM graph_edges ORDER BY created_at ASC';
+    const stmt = this.db.prepare(query);
+    const rows = (projectId ? stmt.all(projectId) : stmt.all()) as Record<string, unknown>[];
+    return rows.map((r) => this.mapRowToEdge(r));
+  }
+
+  public checkIntegrity(projectId?: string): GraphIntegrityReport {
+    const nodes = this.getAllNodes(projectId);
+    const edges = this.getAllEdges(projectId);
+    const nodeMap = new Map<string, GraphNode>();
+    for (const n of nodes) {
+      nodeMap.set(n.id, n);
+    }
+
+    const danglingEdges: Array<{ edgeId: string; missingNodeId: string; reason: string }> = [];
+    const selfLoops: Array<{ edgeId: string; nodeId: string }> = [];
+    const connectedNodeIds = new Set<string>();
+
+    for (const edge of edges) {
+      if (edge.sourceNodeId === edge.targetNodeId) {
+        selfLoops.push({ edgeId: edge.id, nodeId: edge.sourceNodeId });
+      }
+
+      if (!nodeMap.has(edge.sourceNodeId)) {
+        danglingEdges.push({
+          edgeId: edge.id,
+          missingNodeId: edge.sourceNodeId,
+          reason: `Edge source node ${edge.sourceNodeId} does not exist in graph_nodes`,
+        });
+      } else {
+        connectedNodeIds.add(edge.sourceNodeId);
+      }
+
+      if (!nodeMap.has(edge.targetNodeId)) {
+        danglingEdges.push({
+          edgeId: edge.id,
+          missingNodeId: edge.targetNodeId,
+          reason: `Edge target node ${edge.targetNodeId} does not exist in graph_nodes`,
+        });
+      } else {
+        connectedNodeIds.add(edge.targetNodeId);
+      }
+    }
+
+    const isolatedNodes: Array<{ nodeId: string; label: string; entityType: GraphEntityType }> = [];
+    for (const node of nodes) {
+      if (!connectedNodeIds.has(node.id)) {
+        isolatedNodes.push({
+          nodeId: node.id,
+          label: node.label,
+          entityType: node.entityType,
+        });
+      }
+    }
+
+    const details: string[] = [];
+    if (danglingEdges.length > 0) {
+      details.push(`Found ${danglingEdges.length} dangling edge(s)`);
+    }
+    if (selfLoops.length > 0) {
+      details.push(`Found ${selfLoops.length} self-loop edge(s)`);
+    }
+    if (isolatedNodes.length > 0) {
+      details.push(`Found ${isolatedNodes.length} isolated node(s) with 0 connections`);
+    }
+    if (details.length === 0) {
+      details.push('Graph structure is fully consistent and healthy');
+    }
+
+    return {
+      isValid: danglingEdges.length === 0 && selfLoops.length === 0,
+      totalNodes: nodes.length,
+      totalEdges: edges.length,
+      danglingEdges,
+      isolatedNodes,
+      selfLoops,
+      details,
+    };
+  }
+
   public findNodeById(id: string): GraphNode | null {
     const stmt = this.db.prepare('SELECT * FROM graph_nodes WHERE id = ?');
     const row = stmt.get(id) as Record<string, unknown> | undefined;
@@ -335,7 +559,7 @@ export class GraphRepository extends BaseRepository {
         SELECT e.id as edge_id, e.project_id as edge_project_id, e.source_node_id, e.target_node_id,
                e.relation_type, e.weight, e.metadata_json as edge_metadata, e.created_at as edge_created_at,
                n.id as node_id, n.project_id as node_project_id, n.entity_type, n.entity_id,
-               n.label, n.metadata_json as node_metadata, n.created_at as node_created_at
+               n.label, n.name, n.path, n.line_start, n.line_end, n.metadata_json as node_metadata, n.created_at as node_created_at
         FROM graph_edges e
         JOIN graph_nodes n ON e.target_node_id = n.id
         WHERE e.source_node_id = ?
@@ -350,6 +574,10 @@ export class GraphRepository extends BaseRepository {
             entityType: r['entity_type'] as GraphEntityType,
             entityId: String(r['entity_id']),
             label: String(r['label']),
+            name: r['name'] ? String(r['name']) : undefined,
+            path: r['path'] ? String(r['path']) : undefined,
+            lineStart: r['line_start'] != null ? Number(r['line_start']) : undefined,
+            lineEnd: r['line_end'] != null ? Number(r['line_end']) : undefined,
             metadataJson: r['node_metadata'] ? String(r['node_metadata']) : undefined,
             createdAt: Number(r['node_created_at']),
           },
@@ -372,7 +600,7 @@ export class GraphRepository extends BaseRepository {
         SELECT e.id as edge_id, e.project_id as edge_project_id, e.source_node_id, e.target_node_id,
                e.relation_type, e.weight, e.metadata_json as edge_metadata, e.created_at as edge_created_at,
                n.id as node_id, n.project_id as node_project_id, n.entity_type, n.entity_id,
-               n.label, n.metadata_json as node_metadata, n.created_at as node_created_at
+               n.label, n.name, n.path, n.line_start, n.line_end, n.metadata_json as node_metadata, n.created_at as node_created_at
         FROM graph_edges e
         JOIN graph_nodes n ON e.source_node_id = n.id
         WHERE e.target_node_id = ?
@@ -387,6 +615,10 @@ export class GraphRepository extends BaseRepository {
             entityType: r['entity_type'] as GraphEntityType,
             entityId: String(r['entity_id']),
             label: String(r['label']),
+            name: r['name'] ? String(r['name']) : undefined,
+            path: r['path'] ? String(r['path']) : undefined,
+            lineStart: r['line_start'] != null ? Number(r['line_start']) : undefined,
+            lineEnd: r['line_end'] != null ? Number(r['line_end']) : undefined,
             metadataJson: r['node_metadata'] ? String(r['node_metadata']) : undefined,
             createdAt: Number(r['node_created_at']),
           },

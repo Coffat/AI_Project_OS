@@ -69,23 +69,37 @@ CREATE TABLE IF NOT EXISTS project_memory (
 CREATE TABLE IF NOT EXISTS graph_nodes (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,
-    type TEXT NOT NULL CHECK (type IN ('FILE', 'SYMBOL', 'TASK', 'DECISION', 'MODULE')),
-    identifier TEXT NOT NULL,
+    entity_type TEXT NOT NULL CHECK (entity_type IN ('task', 'file', 'symbol', 'module', 'decision', 'constraint', 'memory', 'research', 'test', 'validation')),
+    entity_id TEXT NOT NULL,
     label TEXT NOT NULL,
+    name TEXT,
+    path TEXT,
+    line_start INTEGER,
+    line_end INTEGER,
     metadata_json TEXT,
-    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    UNIQUE(project_id, entity_type, entity_id)
 );
 
 -- Graph Edges Table
 CREATE TABLE IF NOT EXISTS graph_edges (
-    source_id TEXT NOT NULL,
-    target_id TEXT NOT NULL,
-    relation_type TEXT NOT NULL CHECK (relation_type IN ('IMPORTS', 'CALLS', 'IMPLEMENTS', 'DEPENDS_ON', 'DECIDED_BY', 'AFFECTS')),
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    source_node_id TEXT NOT NULL,
+    target_node_id TEXT NOT NULL,
+    relation_type TEXT NOT NULL CHECK (relation_type IN (
+        'imports', 'calls', 'implements', 'depends_on', 'decides', 'validates',
+        'affects', 'contains', 'exports', 'tests', 'tested_by', 'modifies',
+        'constrained_by', 'relates_to', 'references', 'dependency'
+    )),
     weight REAL DEFAULT 1.0,
     metadata_json TEXT,
-    PRIMARY KEY (source_id, target_id, relation_type),
-    FOREIGN KEY(source_id) REFERENCES graph_nodes(id) ON DELETE CASCADE,
-    FOREIGN KEY(target_id) REFERENCES graph_nodes(id) ON DELETE CASCADE
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (source_node_id, target_node_id, relation_type),
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY(source_node_id) REFERENCES graph_nodes(id) ON DELETE CASCADE,
+    FOREIGN KEY(target_node_id) REFERENCES graph_nodes(id) ON DELETE CASCADE
 );
 
 -- FTS5 Full Text Index for Project Memory

@@ -37,3 +37,17 @@ export class IntegrityError extends AIProjectOSError {
     this.name = 'IntegrityError';
   }
 }
+
+export class NodeNotFoundError extends AIProjectOSError {
+  constructor(nodeId: string) {
+    super(`Graph node not found: ${nodeId}`, 'NODE_NOT_FOUND');
+    this.name = 'NodeNotFoundError';
+  }
+}
+
+export class EdgeNotFoundError extends AIProjectOSError {
+  constructor(edgeId: string) {
+    super(`Graph edge not found: ${edgeId}`, 'EDGE_NOT_FOUND');
+    this.name = 'EdgeNotFoundError';
+  }
+}

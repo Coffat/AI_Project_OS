@@ -242,7 +242,17 @@ export interface SymbolEntity {
 }
 
 // --- Knowledge & Code Graph ---
-export type GraphEntityType = 'file' | 'symbol' | 'task' | 'decision' | 'constraint' | 'module';
+export type GraphEntityType =
+  | 'task'
+  | 'file'
+  | 'symbol'
+  | 'module'
+  | 'decision'
+  | 'constraint'
+  | 'memory'
+  | 'research'
+  | 'test'
+  | 'validation';
 
 export interface GraphNode {
   id: string;
@@ -269,6 +279,11 @@ export type GraphRelationType =
   | 'contains'
   | 'exports'
   | 'tests'
+  | 'tested_by'
+  | 'modifies'
+  | 'constrained_by'
+  | 'relates_to'
+  | 'references'
   | 'dependency';
 
 export interface GraphEdge {
@@ -280,6 +295,70 @@ export interface GraphEdge {
   weight?: number;
   metadataJson?: string;
   createdAt: number;
+}
+
+export interface GraphTraversalOptions {
+  direction?: 'OUT' | 'IN' | 'BOTH';
+  maxDepth?: number;
+  relationTypes?: GraphRelationType[];
+  entityTypes?: GraphEntityType[];
+  limit?: number;
+}
+
+export interface RankedGraphNode {
+  node: GraphNode;
+  score: number;
+  distance: number;
+  reasons: string[];
+}
+
+export interface GraphPathResult {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  distance: number;
+  totalWeight: number;
+}
+
+export interface TaskGraphContext {
+  taskNode: GraphNode;
+  modifiedFiles: Array<{ node: GraphNode; path: string; score: number }>;
+  dependencies: Array<{ node: GraphNode; relation: GraphRelationType; depth: number }>;
+  decisions: Array<{ node: GraphNode; label: string; relation: GraphRelationType }>;
+  constraints: Array<{ node: GraphNode; label: string; relation: GraphRelationType }>;
+  symbols: Array<{ node: GraphNode; name: string }>;
+  tests: Array<{ node: GraphNode; path: string }>;
+  memories: Array<{ node: GraphNode; label: string }>;
+  rankedRelated: RankedGraphNode[];
+}
+
+export interface DecisionGraphContext {
+  decisionNode: GraphNode;
+  constraints: Array<{ node: GraphNode; label: string }>;
+  dependentTasks: Array<{ node: GraphNode; label: string }>;
+  affectedFiles: Array<{ node: GraphNode; path: string }>;
+  affectedSymbols: Array<{ node: GraphNode; name: string }>;
+  relatedMemories: Array<{ node: GraphNode; label: string }>;
+}
+
+export interface FileGraphContext {
+  fileNode: GraphNode;
+  path: string;
+  modifyingTasks: Array<{ node: GraphNode; label: string }>;
+  relatedTests: Array<{ node: GraphNode; path: string }>;
+  importedFiles: Array<{ node: GraphNode; path: string }>;
+  importerFiles: Array<{ node: GraphNode; path: string }>;
+  symbols: Array<{ node: GraphNode; name: string; kind?: string }>;
+  relatedDecisions: Array<{ node: GraphNode; label: string }>;
+}
+
+export interface GraphIntegrityReport {
+  isValid: boolean;
+  totalNodes: number;
+  totalEdges: number;
+  danglingEdges: Array<{ edgeId: string; missingNodeId: string; reason: string }>;
+  isolatedNodes: Array<{ nodeId: string; label: string; entityType: GraphEntityType }>;
+  selfLoops: Array<{ edgeId: string; nodeId: string }>;
+  details: string[];
 }
 
 // --- Code Intelligence Engine Domain Types ---
