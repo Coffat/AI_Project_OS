@@ -217,7 +217,16 @@ export interface FileEntity {
   updatedAt: number;
 }
 
-export type SymbolKind = 'function' | 'class' | 'interface' | 'method' | 'variable' | 'type';
+export type SymbolKind =
+  | 'function'
+  | 'class'
+  | 'interface'
+  | 'method'
+  | 'variable'
+  | 'type'
+  | 'model'
+  | 'api'
+  | 'test';
 
 export interface SymbolEntity {
   id: string;
@@ -241,6 +250,10 @@ export interface GraphNode {
   entityType: GraphEntityType;
   entityId: string;
   label: string;
+  name?: string;
+  path?: string;
+  lineStart?: number;
+  lineEnd?: number;
   metadataJson?: string;
   createdAt: number;
 }
@@ -252,7 +265,11 @@ export type GraphRelationType =
   | 'depends_on'
   | 'decides'
   | 'validates'
-  | 'affects';
+  | 'affects'
+  | 'contains'
+  | 'exports'
+  | 'tests'
+  | 'dependency';
 
 export interface GraphEdge {
   id: string;
@@ -263,6 +280,93 @@ export interface GraphEdge {
   weight?: number;
   metadataJson?: string;
   createdAt: number;
+}
+
+// --- Code Intelligence Engine Domain Types ---
+export interface ImportInfo {
+  sourceModule: string;
+  specifiers: Array<{ name: string; alias?: string; isTypeOnly?: boolean }>;
+  isDefault: boolean;
+  defaultAlias?: string;
+  isNamespace: boolean;
+  namespaceAlias?: string;
+  lineStart: number;
+  lineEnd: number;
+}
+
+export interface ExportInfo {
+  name: string;
+  exportedName: string;
+  isDefault: boolean;
+  kind: SymbolKind;
+  lineStart: number;
+  lineEnd: number;
+}
+
+export interface CallInfo {
+  callerSymbolName?: string;
+  calleeName: string;
+  calleeModule?: string;
+  lineStart: number;
+  lineEnd: number;
+}
+
+export interface ImplementsInfo {
+  className: string;
+  interfaceName: string;
+  lineStart: number;
+  lineEnd: number;
+}
+
+export interface TestInfo {
+  testName: string;
+  suiteName?: string;
+  calledSymbols: string[];
+  lineStart: number;
+  lineEnd: number;
+}
+
+export interface ApiInfo {
+  httpMethod?: string;
+  routePath?: string;
+  handlerName: string;
+  lineStart: number;
+  lineEnd: number;
+}
+
+export interface DatabaseModelInfo {
+  modelName: string;
+  modelType: 'table' | 'entity' | 'schema';
+  lineStart: number;
+  lineEnd: number;
+}
+
+export interface AstAnalysisResult {
+  filePath: string;
+  language: string;
+  symbols: Array<{
+    name: string;
+    kind: SymbolKind;
+    lineStart: number;
+    lineEnd: number;
+    signature?: string;
+    docstring?: string;
+    parentSymbolName?: string;
+  }>;
+  imports: ImportInfo[];
+  exports: ExportInfo[];
+  calls: CallInfo[];
+  implements: ImplementsInfo[];
+  tests: TestInfo[];
+  apis: ApiInfo[];
+  models: DatabaseModelInfo[];
+}
+
+export interface GitChangedFiles {
+  added: string[];
+  modified: string[];
+  deleted: string[];
+  renamed: Array<{ from: string; to: string }>;
 }
 
 // --- Audit & Events ---

@@ -36,6 +36,10 @@ export interface CreateNodeParams {
   entityType: GraphEntityType;
   entityId: string;
   label: string;
+  name?: string;
+  path?: string;
+  lineStart?: number;
+  lineEnd?: number;
   metadata?: Record<string, unknown>;
 }
 
@@ -201,13 +205,25 @@ export class GraphRepository extends BaseRepository {
     if (existing) {
       const stmt = this.db.prepare(`
         UPDATE graph_nodes
-        SET label = ?, metadata_json = ?
+        SET label = ?, name = ?, path = ?, line_start = ?, line_end = ?, metadata_json = ?
         WHERE id = ?
       `);
-      stmt.run(params.label, this.serializeJson(params.metadata, '{}'), existing.id);
+      stmt.run(
+        params.label,
+        params.name ?? existing.name ?? null,
+        params.path ?? existing.path ?? null,
+        params.lineStart ?? existing.lineStart ?? null,
+        params.lineEnd ?? existing.lineEnd ?? null,
+        this.serializeJson(params.metadata, '{}'),
+        existing.id
+      );
       return {
         ...existing,
         label: params.label,
+        name: params.name ?? existing.name,
+        path: params.path ?? existing.path,
+        lineStart: params.lineStart ?? existing.lineStart,
+        lineEnd: params.lineEnd ?? existing.lineEnd,
         metadataJson: this.serializeJson(params.metadata, '{}'),
       };
     }
@@ -218,13 +234,17 @@ export class GraphRepository extends BaseRepository {
       entityType: params.entityType,
       entityId: params.entityId,
       label: params.label,
+      name: params.name,
+      path: params.path,
+      lineStart: params.lineStart,
+      lineEnd: params.lineEnd,
       metadataJson: this.serializeJson(params.metadata, '{}'),
       createdAt: now,
     };
 
     const stmt = this.db.prepare(`
-      INSERT INTO graph_nodes (id, project_id, entity_type, entity_id, label, metadata_json, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO graph_nodes (id, project_id, entity_type, entity_id, label, name, path, line_start, line_end, metadata_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -233,6 +253,10 @@ export class GraphRepository extends BaseRepository {
       node.entityType,
       node.entityId,
       node.label,
+      node.name ?? null,
+      node.path ?? null,
+      node.lineStart ?? null,
+      node.lineEnd ?? null,
       node.metadataJson ?? null,
       node.createdAt
     );
@@ -383,6 +407,107 @@ export class GraphRepository extends BaseRepository {
     return results;
   }
 
+  public findNodesByName(projectId: string, name: string): GraphNode[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM graph_nodes
+      WHERE project_id = ? AND (name = ? OR label = ?)
+    `);
+    const rows = stmt.all(projectId, name, name) as Record<string, unknown>[];
+    return rows.map((r) => this.mapRowToNode(r));
+  }
+
+  public findNodesByPath(projectId: string, path: string): GraphNode[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM graph_nodes
+      WHERE project_id = ? AND path = ?
+    `);
+    const rows = stmt.all(projectId, path) as Record<string, unknown>[];
+    return rows.map((r) => this.mapRowToNode(r));
+  }
+
+  public findNodesByType(projectId: string, entityType: GraphEntityType): GraphNode[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM graph_nodes
+      WHERE project_id = ? AND entity_type = ?
+    `);
+    const rows = stmt.all(projectId, entityType) as Record<string, unknown>[];
+    return rows.map((r) => this.mapRowToNode(r));
+  }
+
+  public findEdgesBySource(sourceNodeId: string, relationType?: GraphRelationType): GraphEdge[] {
+    let query = 'SELECT * FROM graph_edges WHERE source_node_id = ?';
+    const params: Array<string | number | null> = [sourceNodeId];
+    if (relationType) {
+      query += ' AND relation_type = ?';
+      params.push(relationType);
+    }
+    const stmt = this.db.prepare(query);
+    const rows = stmt.all(...params) as Record<string, unknown>[];
+    return rows.map((r) => this.mapRowToEdge(r));
+  }
+
+  public findEdgesByTarget(targetNodeId: string, relationType?: GraphRelationType): GraphEdge[] {
+    let query = 'SELECT * FROM graph_edges WHERE target_node_id = ?';
+    const params: Array<string | number | null> = [targetNodeId];
+    if (relationType) {
+      query += ' AND relation_type = ?';
+      params.push(relationType);
+    }
+    const stmt = this.db.prepare(query);
+    const rows = stmt.all(...params) as Record<string, unknown>[];
+    return rows.map((r) => this.mapRowToEdge(r));
+  }
+
+  public deleteSymbolsByFileId(fileId: string): void {
+    const delFts = this.db.prepare(`
+      DELETE FROM fts_symbols WHERE symbol_id IN (SELECT id FROM symbols WHERE file_id = ?)
+    `);
+    delFts.run(fileId);
+
+    const delSymbols = this.db.prepare('DELETE FROM symbols WHERE file_id = ?');
+    delSymbols.run(fileId);
+  }
+
+  public deleteFileGraph(projectId: string, filePath: string): void {
+    const file = this.findFileByPath(projectId, filePath);
+    if (!file) return;
+
+    // 1. Find symbol nodes and file node for this path
+    const nodes = this.findNodesByPath(projectId, filePath);
+    for (const node of nodes) {
+      // Deleting graph node will CASCADE delete edges in graph_edges
+      const delNode = this.db.prepare('DELETE FROM graph_nodes WHERE id = ?');
+      delNode.run(node.id);
+    }
+
+    // 2. Delete file node by entity_id if path didn't catch it
+    const fileNode = this.findNodeByEntity(projectId, 'file', file.id);
+    if (fileNode) {
+      const delNode = this.db.prepare('DELETE FROM graph_nodes WHERE id = ?');
+      delNode.run(fileNode.id);
+    }
+
+    // 3. Delete symbols
+    this.deleteSymbolsByFileId(file.id);
+
+    // 4. Delete file record
+    const delFile = this.db.prepare('DELETE FROM files WHERE id = ?');
+    delFile.run(file.id);
+  }
+
+  public updateFilePath(projectId: string, oldPath: string, newPath: string): void {
+    const now = Date.now();
+    const updateFiles = this.db.prepare(`
+      UPDATE files SET path = ?, updated_at = ? WHERE project_id = ? AND path = ?
+    `);
+    updateFiles.run(newPath, now, projectId, oldPath);
+
+    const updateNodes = this.db.prepare(`
+      UPDATE graph_nodes SET path = ? WHERE project_id = ? AND path = ?
+    `);
+    updateNodes.run(newPath, projectId, oldPath);
+  }
+
   private mapRowToFile(row: Record<string, unknown>): FileEntity {
     return {
       id: String(row['id']),
@@ -419,6 +544,23 @@ export class GraphRepository extends BaseRepository {
       entityType: row['entity_type'] as GraphEntityType,
       entityId: String(row['entity_id']),
       label: String(row['label']),
+      name: row['name'] ? String(row['name']) : undefined,
+      path: row['path'] ? String(row['path']) : undefined,
+      lineStart: row['line_start'] != null ? Number(row['line_start']) : undefined,
+      lineEnd: row['line_end'] != null ? Number(row['line_end']) : undefined,
+      metadataJson: row['metadata_json'] ? String(row['metadata_json']) : undefined,
+      createdAt: Number(row['created_at']),
+    };
+  }
+
+  private mapRowToEdge(row: Record<string, unknown>): GraphEdge {
+    return {
+      id: String(row['id']),
+      projectId: String(row['project_id']),
+      sourceNodeId: String(row['source_node_id']),
+      targetNodeId: String(row['target_node_id']),
+      relationType: row['relation_type'] as GraphRelationType,
+      weight: Number(row['weight']),
       metadataJson: row['metadata_json'] ? String(row['metadata_json']) : undefined,
       createdAt: Number(row['created_at']),
     };

@@ -1,0 +1,11 @@
+{
+  "name": "sample-project",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "express": "^4.19.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
+  }
+}

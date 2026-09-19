@@ -1,65 +1,109 @@
-import type { DatabaseSync } from 'node:sqlite';
-import { SymbolKind } from '../core/types.js';
+import { DatabaseSync } from 'node:sqlite';
+import { GraphRepository, CreateSymbolParams } from '../database/repositories/graph.repository.js';
+import { SymbolEntity, SymbolKind, AstAnalysisResult, GraphNode } from '../core/types.js';
 
-export interface SymbolDefinition {
-  nodeId: string;
-  identifier: string;
-  label: string;
-  filePath: string;
-  kind: SymbolKind;
-  documentation?: string;
-  lineStart: number;
-  lineEnd: number;
+export interface SymbolWithNode {
+  symbol: SymbolEntity;
+  node: GraphNode;
 }
 
-export interface ICodeIntelligenceEngine {
-  indexSymbols(symbols: SymbolDefinition[]): Promise<void>;
-  searchSymbols(query: string): Promise<SymbolDefinition[]>;
-}
+export class SymbolIndexer {
+  private readonly graphRepo: GraphRepository;
 
-export class CodeIntelligenceEngine implements ICodeIntelligenceEngine {
-  constructor(private readonly db: DatabaseSync) {}
-
-  public async indexSymbols(symbols: SymbolDefinition[]): Promise<void> {
-    const insertStmt = this.db.prepare(`
-      INSERT INTO fts_code_symbols (node_id, identifier, label, file_path, documentation)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-
-    this.db.exec('BEGIN TRANSACTION;');
-    try {
-      for (const s of symbols) {
-        insertStmt.run(s.nodeId, s.identifier, s.label, s.filePath, s.documentation ?? null);
-      }
-      this.db.exec('COMMIT;');
-    } catch (err) {
-      this.db.exec('ROLLBACK;');
-      throw err;
-    }
+  constructor(private readonly db: DatabaseSync) {
+    this.graphRepo = new GraphRepository(db);
   }
 
-  public async searchSymbols(query: string): Promise<SymbolDefinition[]> {
-    if (!query || query.trim() === '') return [];
+  /**
+   * Indexes all symbols extracted from an AST analysis into SQLite tables and Graph nodes.
+   */
+  public indexFileSymbols(
+    fileId: string,
+    projectId: string,
+    filePath: string,
+    symbols: AstAnalysisResult['symbols']
+  ): SymbolWithNode[] {
+    if (symbols.length === 0) return [];
 
-    try {
-      const stmt = this.db.prepare(`
-        SELECT * FROM fts_code_symbols
-        WHERE fts_code_symbols MATCH ?
-        LIMIT 20
-      `);
-      const rows = stmt.all(query) as Record<string, unknown>[];
-      return rows.map((r) => ({
-        nodeId: String(r['node_id']),
-        identifier: String(r['identifier']),
-        label: String(r['label']),
-        filePath: String(r['file_path']),
-        kind: 'function' as SymbolKind,
-        documentation: r['documentation'] ? String(r['documentation']) : undefined,
-        lineStart: 1,
-        lineEnd: 1,
-      }));
-    } catch {
-      return [];
+    // 1. Prepare symbols for batch insert into symbols table
+    const createParams: CreateSymbolParams[] = symbols.map((s) => ({
+      fileId,
+      projectId,
+      name: s.name,
+      kind: s.kind,
+      lineStart: s.lineStart,
+      lineEnd: s.lineEnd,
+      signature: s.signature,
+      docstring: s.docstring,
+    }));
+
+    const createdSymbols = this.graphRepo.addSymbols(createParams);
+    const results: SymbolWithNode[] = [];
+
+    // 2. Create graph nodes for each symbol
+    for (let i = 0; i < createdSymbols.length; i++) {
+      const sym = createdSymbols[i];
+      const orig = symbols[i];
+      if (!sym || !orig) continue;
+
+      const node = this.graphRepo.addNode({
+        projectId,
+        entityType: 'symbol',
+        entityId: sym.id,
+        label: sym.name,
+        name: sym.name,
+        path: filePath,
+        lineStart: sym.lineStart,
+        lineEnd: sym.lineEnd,
+        metadata: {
+          kind: sym.kind,
+          signature: sym.signature,
+          docstring: sym.docstring,
+          parentSymbolName: orig.parentSymbolName,
+        },
+      });
+
+      results.push({ symbol: sym, node });
     }
+
+    return results;
+  }
+
+  /**
+   * Search symbols via full-text search (FTS5).
+   */
+  public searchSymbols(query: string, limit = 20): SymbolEntity[] {
+    return this.graphRepo.searchSymbolsFTS(query, limit);
+  }
+
+  /**
+   * Find symbol by exact name.
+   */
+  public findSymbolByName(projectId: string, name: string): SymbolEntity[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM symbols
+      WHERE project_id = ? AND name = ?
+      ORDER BY line_start ASC
+    `);
+    const rows = stmt.all(projectId, name) as Record<string, unknown>[];
+    return rows.map((r) => ({
+      id: String(r['id']),
+      fileId: String(r['file_id']),
+      projectId: String(r['project_id']),
+      name: String(r['name']),
+      kind: r['kind'] as SymbolKind,
+      lineStart: Number(r['line_start']),
+      lineEnd: Number(r['line_end']),
+      signature: r['signature'] ? String(r['signature']) : undefined,
+      docstring: r['docstring'] ? String(r['docstring']) : undefined,
+      createdAt: Number(r['created_at']),
+    }));
+  }
+
+  /**
+   * Remove symbols associated with a specific file.
+   */
+  public deleteSymbolsForFile(fileId: string): void {
+    this.graphRepo.deleteSymbolsByFileId(fileId);
   }
 }
