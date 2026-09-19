@@ -5,13 +5,19 @@ import {
   TaskPriority,
   TaskStep,
   TaskStepStatus,
+  TaskBlocker,
+  TaskFileRelation,
+  TaskSymbolRelation,
+  TaskSnapshot,
 } from '../../core/types.js';
 import { TaskNotFoundError, ValidationError } from '../../core/errors.js';
+import { TaskStateMachine } from '../../tasks/task-state-machine.js';
 import { randomUUID } from 'node:crypto';
 
 export interface CreateTaskParams {
   projectId: string;
   title: string;
+  goal?: string;
   description?: string;
   priority?: TaskPriority;
   assignedAgent?: string;
@@ -20,23 +26,15 @@ export interface CreateTaskParams {
 
 export interface UpdateTaskParams {
   title?: string;
+  goal?: string;
   description?: string;
   priority?: TaskPriority;
+  currentStep?: string;
   assignedAgent?: string;
   expectedVersion?: number;
 }
 
 export class TaskRepository extends BaseRepository {
-  private static readonly VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
-    planned: ['in_progress', 'blocked'],
-    in_progress: ['blocked', 'handoff', 'testing', 'done'],
-    blocked: ['in_progress', 'resumed', 'handoff'],
-    handoff: ['resumed', 'in_progress', 'blocked'],
-    resumed: ['in_progress', 'testing', 'blocked'],
-    testing: ['done', 'in_progress', 'blocked'],
-    done: ['in_progress'], // Allowed to reopen if regressions occur
-  };
-
   public create(params: CreateTaskParams): Task {
     if (!params.title || params.title.trim() === '') {
       throw new ValidationError('Task title cannot be empty');
@@ -47,6 +45,7 @@ export class TaskRepository extends BaseRepository {
       id: randomUUID(),
       projectId: params.projectId,
       title: params.title.trim(),
+      goal: params.goal?.trim() || params.title.trim(),
       description: params.description?.trim(),
       status: 'planned',
       priority: params.priority ?? 'medium',
@@ -59,15 +58,16 @@ export class TaskRepository extends BaseRepository {
 
     const stmt = this.db.prepare(`
       INSERT INTO tasks (
-        id, project_id, title, description, status, priority,
+        id, project_id, title, goal, description, status, priority,
         assigned_agent, parent_task_id, version, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
       task.id,
       task.projectId,
       task.title,
+      task.goal ?? null,
       task.description ?? null,
       task.status,
       task.priority,
@@ -126,24 +126,31 @@ export class TaskRepository extends BaseRepository {
       );
     }
 
-    // Validate lifecycle transition
-    const allowed = TaskRepository.VALID_TRANSITIONS[current.status];
-    if (!allowed.includes(newStatus)) {
-      throw new ValidationError(
-        `Invalid task lifecycle transition from '${current.status}' to '${newStatus}'`
-      );
-    }
+    // Validate lifecycle transition using TaskStateMachine
+    TaskStateMachine.assertTransition(current.status, newStatus, taskId);
 
     const now = Date.now();
     const nextVersion = current.version + 1;
+    let startedAt = current.startedAt;
+    let completedAt = current.completedAt;
+
+    if (newStatus === 'in_progress' && !startedAt) {
+      startedAt = now;
+    }
+    if (newStatus === 'done') {
+      completedAt = now;
+    } else if (newStatus === 'in_progress' && current.status === 'done') {
+      // Reopened task
+      completedAt = undefined;
+    }
 
     const stmt = this.db.prepare(`
       UPDATE tasks
-      SET status = ?, version = ?, updated_at = ?
+      SET status = ?, version = ?, started_at = ?, completed_at = ?, updated_at = ?
       WHERE id = ? AND version = ?
     `);
 
-    const result = stmt.run(newStatus, nextVersion, now, taskId, current.version);
+    const result = stmt.run(newStatus, nextVersion, startedAt ?? null, completedAt ?? null, now, taskId, current.version);
     if (Number(result.changes) === 0) {
       throw new ValidationError(`Concurrent update detected while transitioning task ${taskId}`);
     }
@@ -151,6 +158,8 @@ export class TaskRepository extends BaseRepository {
     return {
       ...current,
       status: newStatus,
+      startedAt,
+      completedAt,
       version: nextVersion,
       updatedAt: now,
     };
@@ -171,20 +180,24 @@ export class TaskRepository extends BaseRepository {
     const now = Date.now();
     const nextVersion = current.version + 1;
     const title = updates.title !== undefined ? updates.title.trim() : current.title;
+    const goal = updates.goal !== undefined ? updates.goal.trim() : current.goal;
     const description = updates.description !== undefined ? updates.description?.trim() : current.description;
     const priority = updates.priority !== undefined ? updates.priority : current.priority;
+    const currentStep = updates.currentStep !== undefined ? updates.currentStep.trim() : current.currentStep;
     const assignedAgent = updates.assignedAgent !== undefined ? updates.assignedAgent?.trim() : current.assignedAgent;
 
     const stmt = this.db.prepare(`
       UPDATE tasks
-      SET title = ?, description = ?, priority = ?, assigned_agent = ?, version = ?, updated_at = ?
+      SET title = ?, goal = ?, description = ?, priority = ?, current_step = ?, assigned_agent = ?, version = ?, updated_at = ?
       WHERE id = ? AND version = ?
     `);
 
     const result = stmt.run(
       title,
+      goal ?? null,
       description ?? null,
       priority,
+      currentStep ?? null,
       assignedAgent ?? null,
       nextVersion,
       now,
@@ -199,8 +212,10 @@ export class TaskRepository extends BaseRepository {
     return {
       ...current,
       title,
+      goal,
       description,
       priority,
+      currentStep,
       assignedAgent,
       version: nextVersion,
       updatedAt: now,
@@ -258,17 +273,185 @@ export class TaskRepository extends BaseRepository {
     return rows.map((r) => this.mapRowToStep(r));
   }
 
+  // --- Task Blockers Management ---
+  public addBlocker(taskId: string, reason: string): TaskBlocker {
+    if (!reason || reason.trim() === '') {
+      throw new ValidationError('Blocker reason cannot be empty');
+    }
+
+    const current = this.findById(taskId);
+    if (!current) {
+      throw new TaskNotFoundError(taskId);
+    }
+
+    const now = Date.now();
+    const blocker: TaskBlocker = {
+      id: randomUUID(),
+      taskId,
+      reason: reason.trim(),
+      resolved: false,
+      createdAt: now,
+    };
+
+    const stmt = this.db.prepare(`
+      INSERT INTO task_blockers (id, task_id, reason, resolved, created_at)
+      VALUES (?, ?, ?, 0, ?)
+    `);
+
+    stmt.run(blocker.id, blocker.taskId, blocker.reason, blocker.createdAt);
+    return blocker;
+  }
+
+  public resolveBlocker(blockerId: string): TaskBlocker {
+    const now = Date.now();
+    const stmt = this.db.prepare(`
+      UPDATE task_blockers
+      SET resolved = 1, resolved_at = ?
+      WHERE id = ?
+    `);
+
+    const result = stmt.run(now, blockerId);
+    if (Number(result.changes) === 0) {
+      throw new ValidationError(`Blocker not found: ${blockerId}`);
+    }
+
+    const row = this.db.prepare('SELECT * FROM task_blockers WHERE id = ?').get(blockerId) as Record<string, unknown>;
+    return {
+      id: String(row['id']),
+      taskId: String(row['task_id']),
+      reason: String(row['reason']),
+      resolved: Boolean(row['resolved']),
+      resolvedAt: row['resolved_at'] ? Number(row['resolved_at']) : undefined,
+      createdAt: Number(row['created_at']),
+    };
+  }
+
+  public listBlockers(taskId: string, onlyUnresolved = false): TaskBlocker[] {
+    let sql = 'SELECT * FROM task_blockers WHERE task_id = ?';
+    if (onlyUnresolved) {
+      sql += ' AND resolved = 0';
+    }
+    sql += ' ORDER BY created_at ASC';
+
+    const rows = this.db.prepare(sql).all(taskId) as Record<string, unknown>[];
+    return rows.map((r) => ({
+      id: String(r['id']),
+      taskId: String(r['task_id']),
+      reason: String(r['reason']),
+      resolved: Boolean(r['resolved']),
+      resolvedAt: r['resolved_at'] ? Number(r['resolved_at']) : undefined,
+      createdAt: Number(r['created_at']),
+    }));
+  }
+
+  // --- Task Files Relation ---
+  public attachFile(
+    taskId: string,
+    filePath: string,
+    relationType: 'created' | 'modified' | 'referenced' = 'modified'
+  ): TaskFileRelation {
+    const now = Date.now();
+    const relation: TaskFileRelation = {
+      id: randomUUID(),
+      taskId,
+      filePath: filePath.trim(),
+      relationType,
+      createdAt: now,
+    };
+
+    const stmt = this.db.prepare(`
+      INSERT INTO task_files (id, task_id, file_path, relation_type, created_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(task_id, file_path) DO UPDATE SET
+        relation_type = excluded.relation_type
+    `);
+
+    stmt.run(relation.id, relation.taskId, relation.filePath, relation.relationType, relation.createdAt);
+    return relation;
+  }
+
+  public listFiles(taskId: string): TaskFileRelation[] {
+    const stmt = this.db.prepare('SELECT * FROM task_files WHERE task_id = ? ORDER BY created_at ASC');
+    const rows = stmt.all(taskId) as Record<string, unknown>[];
+    return rows.map((r) => ({
+      id: String(r['id']),
+      taskId: String(r['task_id']),
+      filePath: String(r['file_path']),
+      relationType: r['relation_type'] as 'created' | 'modified' | 'referenced',
+      createdAt: Number(r['created_at']),
+    }));
+  }
+
+  // --- Task Symbols Relation ---
+  public attachSymbol(taskId: string, symbolName: string, symbolId?: string): TaskSymbolRelation {
+    const now = Date.now();
+    const relation: TaskSymbolRelation = {
+      id: randomUUID(),
+      taskId,
+      symbolId,
+      symbolName: symbolName.trim(),
+      createdAt: now,
+    };
+
+    const stmt = this.db.prepare(`
+      INSERT INTO task_symbols (id, task_id, symbol_id, symbol_name, created_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(task_id, symbol_name) DO NOTHING
+    `);
+
+    stmt.run(relation.id, relation.taskId, relation.symbolId ?? null, relation.symbolName, relation.createdAt);
+    return relation;
+  }
+
+  public listSymbols(taskId: string): TaskSymbolRelation[] {
+    const stmt = this.db.prepare('SELECT * FROM task_symbols WHERE task_id = ? ORDER BY created_at ASC');
+    const rows = stmt.all(taskId) as Record<string, unknown>[];
+    return rows.map((r) => ({
+      id: String(r['id']),
+      taskId: String(r['task_id']),
+      symbolId: r['symbol_id'] ? String(r['symbol_id']) : undefined,
+      symbolName: String(r['symbol_name']),
+      createdAt: Number(r['created_at']),
+    }));
+  }
+
+  // --- Task Snapshots ---
+  public saveSnapshot(taskId: string, snapshot: TaskSnapshot): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO task_snapshots (id, task_id, snapshot_json, created_at)
+      VALUES (?, ?, ?, ?)
+    `);
+
+    stmt.run(randomUUID(), taskId, JSON.stringify(snapshot), snapshot.timestamp);
+  }
+
+  public listSnapshots(taskId: string, limit = 20): TaskSnapshot[] {
+    const stmt = this.db.prepare(`
+      SELECT snapshot_json FROM task_snapshots
+      WHERE task_id = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `);
+
+    const rows = stmt.all(taskId, limit) as Array<{ snapshot_json: string }>;
+    return rows.map((r) => JSON.parse(r.snapshot_json) as TaskSnapshot);
+  }
+
   private mapRowToTask(row: Record<string, unknown>): Task {
     return {
       id: String(row['id']),
       projectId: String(row['project_id']),
       title: String(row['title']),
+      goal: row['goal'] ? String(row['goal']) : undefined,
       description: row['description'] ? String(row['description']) : undefined,
       status: row['status'] as TaskStatus,
       priority: row['priority'] as TaskPriority,
+      currentStep: row['current_step'] ? String(row['current_step']) : undefined,
       assignedAgent: row['assigned_agent'] ? String(row['assigned_agent']) : undefined,
       parentTaskId: row['parent_task_id'] ? String(row['parent_task_id']) : undefined,
       version: Number(row['version']),
+      startedAt: row['started_at'] ? Number(row['started_at']) : undefined,
+      completedAt: row['completed_at'] ? Number(row['completed_at']) : undefined,
       createdAt: Number(row['created_at']),
       updatedAt: Number(row['updated_at']),
     };

@@ -27,12 +27,16 @@ export interface Task {
   id: string;
   projectId: string;
   title: string;
+  goal?: string;
   description?: string;
   status: TaskStatus;
   priority: TaskPriority;
+  currentStep?: string;
   assignedAgent?: string;
   parentTaskId?: string;
   version: number;
+  startedAt?: number;
+  completedAt?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -48,6 +52,47 @@ export interface TaskStep {
   resultSummary?: string;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface TaskBlocker {
+  id: string;
+  taskId: string;
+  reason: string;
+  resolved: boolean;
+  resolvedAt?: number;
+  createdAt: number;
+}
+
+export interface TaskFileRelation {
+  id: string;
+  taskId: string;
+  filePath: string;
+  relationType: 'created' | 'modified' | 'referenced';
+  createdAt: number;
+}
+
+export interface TaskSymbolRelation {
+  id: string;
+  taskId: string;
+  symbolId?: string;
+  symbolName: string;
+  createdAt: number;
+}
+
+export interface TaskSnapshot {
+  taskId: string;
+  taskTitle: string;
+  goal: string;
+  status: TaskStatus;
+  currentStep?: string;
+  completedSteps: string[];
+  remainingSteps: string[];
+  files: string[];
+  symbols?: string[];
+  decisions: string[];
+  blockers: string[];
+  nextAction: string;
+  timestamp: number;
 }
 
 export interface TaskCheckpoint {
