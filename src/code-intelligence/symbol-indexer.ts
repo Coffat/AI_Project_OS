@@ -49,7 +49,7 @@ export class SymbolIndexer {
       const node = this.graphRepo.addNode({
         projectId,
         entityType: 'symbol',
-        entityId: sym.id,
+        entityId: `${filePath}:${sym.name}`,
         label: sym.name,
         name: sym.name,
         path: filePath,
@@ -103,7 +103,7 @@ export class SymbolIndexer {
   /**
    * Remove symbols associated with a specific file.
    */
-  public deleteSymbolsForFile(fileId: string): void {
-    this.graphRepo.deleteSymbolsByFileId(fileId);
+  public deleteSymbolsForFile(fileId: string, projectId?: string, filePath?: string): void {
+    this.graphRepo.deleteSymbolsByFileId(fileId, projectId, filePath);
   }
 }

@@ -4,6 +4,7 @@ import { ValidationError } from '../../core/errors.js';
 import { randomUUID } from 'node:crypto';
 
 export interface CreateConstraintParams {
+  id?: string;
   projectId: string;
   category: ConstraintCategory;
   title: string;
@@ -23,7 +24,7 @@ export class ConstraintRepository extends BaseRepository {
 
     const now = Date.now();
     const constraint: ConstraintRecord = {
-      id: randomUUID(),
+      id: params.id ?? randomUUID(),
       projectId: params.projectId,
       category: params.category,
       title: params.title.trim(),

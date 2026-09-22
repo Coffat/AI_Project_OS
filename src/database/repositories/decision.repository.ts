@@ -4,6 +4,7 @@ import { ValidationError } from '../../core/errors.js';
 import { randomUUID } from 'node:crypto';
 
 export interface CreateDecisionParams {
+  id?: string;
   projectId: string;
   taskId?: string;
   title: string;
@@ -28,7 +29,7 @@ export class DecisionRepository extends BaseRepository {
 
     const now = Date.now();
     const decision: DecisionRecord = {
-      id: randomUUID(),
+      id: params.id ?? randomUUID(),
       projectId: params.projectId,
       taskId: params.taskId,
       title: params.title.trim(),
@@ -99,6 +100,38 @@ export class DecisionRepository extends BaseRepository {
 
     const updated = this.findById(id);
     return updated!;
+  }
+
+  public update(id: string, updates: Partial<CreateDecisionParams>): DecisionRecord {
+    const existing = this.findById(id);
+    if (!existing) {
+      throw new ValidationError(`Decision not found: ${id}`);
+    }
+
+    const now = Date.now();
+    const updatedTitle = updates.title ?? existing.title;
+    const updatedContext = updates.context ?? existing.context;
+    const updatedRationale = updates.decisionRationale ?? existing.decisionRationale;
+    const updatedConsequences = updates.consequences ?? existing.consequences;
+    const updatedStatus = updates.status ?? existing.status;
+
+    const stmt = this.db.prepare(`
+      UPDATE decisions
+      SET title = ?, context = ?, decision_rationale = ?, consequences = ?, status = ?, updated_at = ?
+      WHERE id = ?
+    `);
+
+    stmt.run(
+      updatedTitle,
+      updatedContext,
+      updatedRationale,
+      updatedConsequences ?? null,
+      updatedStatus,
+      now,
+      id
+    );
+
+    return this.findById(id)!;
   }
 
   private mapRow(row: Record<string, unknown>): DecisionRecord {

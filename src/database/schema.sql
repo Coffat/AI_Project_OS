@@ -119,3 +119,52 @@ CREATE VIRTUAL TABLE IF NOT EXISTS fts_code_symbols USING fts5(
     file_path,
     documentation
 );
+
+-- Incremental Memory Events
+CREATE TABLE IF NOT EXISTS memory_events (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    source TEXT NOT NULL,
+    entity TEXT NOT NULL,
+    before_json TEXT,
+    after_json TEXT,
+    metadata_json TEXT,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+-- Semantic Extraction Requests
+CREATE TABLE IF NOT EXISTS semantic_extraction_requests (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    diff_summary TEXT NOT NULL,
+    suggested_target_layer TEXT NOT NULL,
+    entity_identifier TEXT,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'completed', 'skipped')),
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+-- Execution Sessions
+CREATE TABLE IF NOT EXISTS execution_sessions (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    task_id TEXT,
+    provider TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    account_label TEXT,
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'ended', 'handoff')),
+    metadata_json TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_execution_sessions_task ON execution_sessions(task_id, status);
+CREATE INDEX IF NOT EXISTS idx_execution_sessions_project ON execution_sessions(project_id, status);
+

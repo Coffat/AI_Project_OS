@@ -6,6 +6,12 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
+import { MemoryCompiler } from './memory-compiler.js';
+import { MemoryDiff } from './memory-diff.js';
+import { MemoryUpdater } from './memory-updater.js';
+import { MemoryEventProcessor } from './memory-event-processor.js';
+import { MemoryValidator } from './memory-validator.js';
+
 export interface IMemoryEngine {
   syncCanonicalDocs(projectRoot: string, projectId: string): Promise<number>;
   searchMemory(query: string, category?: MemoryCategory): Promise<MemoryItem[]>;
@@ -14,7 +20,19 @@ export interface IMemoryEngine {
 }
 
 export class MemoryEngine implements IMemoryEngine {
-  constructor(private readonly db: DatabaseSync) {}
+  public readonly compiler: MemoryCompiler;
+  public readonly diff: MemoryDiff;
+  public readonly updater: MemoryUpdater;
+  public readonly eventProcessor: MemoryEventProcessor;
+  public readonly validator: MemoryValidator;
+
+  constructor(private readonly db: DatabaseSync) {
+    this.compiler = new MemoryCompiler(db);
+    this.diff = new MemoryDiff();
+    this.updater = new MemoryUpdater(db);
+    this.eventProcessor = new MemoryEventProcessor(db);
+    this.validator = new MemoryValidator(db);
+  }
 
   public async syncCanonicalDocs(projectRoot: string, projectId: string): Promise<number> {
     const canonicalDir = path.join(projectRoot, '.ai', 'canonical');

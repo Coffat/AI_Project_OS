@@ -22,7 +22,22 @@ export class Migrator {
   private migrationsDir: string;
 
   constructor(private readonly db: DatabaseSync, migrationsDir?: string) {
-    this.migrationsDir = migrationsDir ?? path.resolve(__dirname, '../migrations');
+    if (migrationsDir) {
+      this.migrationsDir = migrationsDir;
+    } else {
+      const candidate1 = path.resolve(__dirname, '../migrations');
+      const candidate2 = path.resolve(__dirname, '../../../../src/database/migrations');
+      const candidate3 = path.resolve(process.cwd(), 'src/database/migrations');
+      if (fs.existsSync(candidate1)) {
+        this.migrationsDir = candidate1;
+      } else if (fs.existsSync(candidate2)) {
+        this.migrationsDir = candidate2;
+      } else if (fs.existsSync(candidate3)) {
+        this.migrationsDir = candidate3;
+      } else {
+        this.migrationsDir = candidate1;
+      }
+    }
   }
 
   public initMigrationTable(): void {

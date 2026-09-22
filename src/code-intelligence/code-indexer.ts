@@ -125,7 +125,7 @@ export class CodeIndexer {
       const analysis = this.astAnalyzer.analyze(relPath, content);
 
       // Clean old symbols and index new
-      this.symbolIndexer.deleteSymbolsForFile(fileEntity.id);
+      this.symbolIndexer.deleteSymbolsForFile(fileEntity.id, projectId, relPath);
       const indexedSymbols = this.symbolIndexer.indexFileSymbols(
         fileEntity.id,
         projectId,
@@ -262,7 +262,7 @@ export class CodeIndexer {
       const analysis = this.astAnalyzer.analyze(relPath, content);
 
       // Delete old symbols for this file and re-index
-      this.symbolIndexer.deleteSymbolsForFile(fileEntity.id);
+      this.symbolIndexer.deleteSymbolsForFile(fileEntity.id, projectId, relPath);
       const indexed = this.symbolIndexer.indexFileSymbols(
         fileEntity.id,
         projectId,

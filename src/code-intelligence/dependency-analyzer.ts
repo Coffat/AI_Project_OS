@@ -84,6 +84,9 @@ export class DependencyAnalyzer {
     fileSymbolNodes: GraphNode[],
     knownFiles: string[]
   ): GraphEdge[] {
+    // Clear old outgoing edges from fileNode before recreating to guarantee edge idempotency
+    this.graphRepo.deleteEdgesBySource(fileNode.id);
+
     const createdEdges: GraphEdge[] = [];
     const symbolMapByName = new Map<string, GraphNode>();
     for (const sn of fileSymbolNodes) {

@@ -51,3 +51,31 @@ export class EdgeNotFoundError extends AIProjectOSError {
     this.name = 'EdgeNotFoundError';
   }
 }
+
+export class ProjectNotFoundError extends AIProjectOSError {
+  constructor(projectId: string) {
+    super(`Project not found with ID: ${projectId}`, 'PROJECT_NOT_FOUND');
+    this.name = 'ProjectNotFoundError';
+  }
+}
+
+export class FirewallViolationError extends AIProjectOSError {
+  constructor(message: string, public readonly violatedPath?: string) {
+    super(`NotebookLM Context Firewall violation: ${message}${violatedPath ? ` (file: ${violatedPath})` : ''}`, 'FIREWALL_VIOLATION');
+    this.name = 'FirewallViolationError';
+  }
+}
+
+export class ProposalNotFoundError extends AIProjectOSError {
+  constructor(proposalId: string) {
+    super(`Research proposal not found with ID: ${proposalId}`, 'PROPOSAL_NOT_FOUND');
+    this.name = 'ProposalNotFoundError';
+  }
+}
+
+export class InvalidProposalFormatError extends AIProjectOSError {
+  constructor(message: string) {
+    super(`Invalid research proposal format: ${message}`, 'INVALID_PROPOSAL_FORMAT');
+    this.name = 'InvalidProposalFormatError';
+  }
+}

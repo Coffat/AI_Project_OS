@@ -1,0 +1,28 @@
+[
+  {
+    "id": "acc_antigravity_1789964998386_be7c95",
+    "provider": "antigravity",
+    "name": "Google Antigravity Account",
+    "accountLabel": "pro-tier",
+    "email": "vut210225@gmail.com",
+    "isActive": true,
+    "fingerprint": {
+      "machineId": "dabbe73d337290a5fc59687ed41e9fe522513142e3510832b1246a6030d380a6",
+      "macMachineId": "994fabfecdeb38367538bf9857a925484f05d8cacfc72901b731bd29e57033ad",
+      "sqmId": "{49190E05-DF5E-45BC-9753-A94213B69851}",
+      "devDeviceId": "58d3f63f-aa56-461a-a2b1-eb2e7970fd8e"
+    },
+    "quota": {
+      "totalCredits": 500,
+      "usedCredits": 0,
+      "remainingCredits": 500,
+      "planType": "Pro",
+      "resetAt": 1792556998388,
+      "lastCheckedAt": 1789964998388
+    },
+    "notes": "Authenticated via OAuth (code: 4/0ATs...)",
+    "configPath": "/Users/vuthang/Documents/CofAIOS/.ai/vault/profiles/acc_antigravity_1789964998386_be7c95",
+    "createdAt": 1789964998388,
+    "updatedAt": 1789964998388
+  }
+]

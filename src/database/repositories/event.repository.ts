@@ -1,6 +1,7 @@
 import { BaseRepository } from './base.repository.js';
 import { AuditEvent } from '../../core/types.js';
 import { ValidationError } from '../../core/errors.js';
+import { SecurityGuard } from '../../core/security-guard.js';
 import { randomUUID } from 'node:crypto';
 
 export interface RecordEventParams {
@@ -25,13 +26,14 @@ export class EventRepository extends BaseRepository {
     }
 
     const now = Date.now();
+    const sanitizedPayload = SecurityGuard.sanitizePayload(params.payload);
     const event: AuditEvent = {
       id: randomUUID(),
       projectId: params.projectId,
       eventType: params.eventType.trim(),
       aggregateType: params.aggregateType.trim(),
       aggregateId: params.aggregateId,
-      payloadJson: this.serializeJson(params.payload, '{}'),
+      payloadJson: this.serializeJson(sanitizedPayload, '{}'),
       agentIdentity: params.agentIdentity.trim(),
       createdAt: now,
     };

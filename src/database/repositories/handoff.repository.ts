@@ -99,7 +99,7 @@ export class HandoffRepository extends BaseRepository {
 
   public findLatestByTaskId(taskId: string): HandoffRecord | null {
     const stmt = this.db.prepare(
-      'SELECT * FROM handoffs WHERE task_id = ? ORDER BY created_at DESC LIMIT 1'
+      'SELECT * FROM handoffs WHERE task_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1'
     );
     const row = stmt.get(taskId) as Record<string, unknown> | undefined;
     if (!row) return null;
@@ -108,7 +108,7 @@ export class HandoffRepository extends BaseRepository {
 
   public listByTaskId(taskId: string): HandoffRecord[] {
     const stmt = this.db.prepare(
-      'SELECT * FROM handoffs WHERE task_id = ? ORDER BY created_at DESC'
+      'SELECT * FROM handoffs WHERE task_id = ? ORDER BY created_at DESC, rowid DESC'
     );
     const rows = stmt.all(taskId) as Record<string, unknown>[];
     return rows.map((r) => this.mapRow(r));

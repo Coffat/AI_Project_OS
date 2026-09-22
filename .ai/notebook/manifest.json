@@ -1,0 +1,115 @@
+{
+  "projectId": "3ab7b26e-a27d-4200-8e5c-e52fd354a3ab",
+  "generatedAt": 1789813874045,
+  "version": "1.0.0",
+  "totalSources": 8,
+  "totalWords": 881,
+  "totalTokens": 1483,
+  "sources": [
+    {
+      "id": "_ai_canonical_PROJECT_md",
+      "title": "Canonical Project Definition",
+      "relativePath": ".ai/canonical/PROJECT.md",
+      "category": "canonical_project",
+      "sha256": "d89c894f23d44ded9b5782f0deca09263ef9c15f7c5a6d4c20258beae6d55eba",
+      "wordCount": 73,
+      "tokenEstimate": 99,
+      "abstract": "name: AI Project OS"
+    },
+    {
+      "id": "_ai_canonical_ARCHITECTURE_md",
+      "title": "Canonical Architecture Reference",
+      "relativePath": ".ai/canonical/ARCHITECTURE.md",
+      "category": "architecture",
+      "sha256": "e6b5a64747309699cf64f7df8c495d06764323b1d3d1c6abbdd911ab75958ab5",
+      "wordCount": 117,
+      "tokenEstimate": 227,
+      "abstract": "Bản tóm lược kiến trúc chuẩn đặt tại `.ai/canonical/ARCHITECTURE.md`."
+    },
+    {
+      "id": "_ai_canonical_CONSTRAINTS_md",
+      "title": "Canonical Technical Constraints",
+      "relativePath": ".ai/canonical/CONSTRAINTS.md",
+      "category": "canonical_project",
+      "sha256": "93fc4f5294d19c8e5e4e7bc1ab6e63424894be73bf93290102a0e282f57f6b0e",
+      "wordCount": 125,
+      "tokenEstimate": 195,
+      "abstract": "1. **Local Disk Footprint**:"
+    },
+    {
+      "id": "_ai_notebook_PROJECT_KNOWLEDGE_md",
+      "title": "Project Knowledge: AI Project OS Dev Environment",
+      "relativePath": ".ai/notebook/PROJECT-KNOWLEDGE.md",
+      "category": "canonical_project",
+      "sha256": "bcc4efa04ad3e943ae3845e76bee2a77677b0180784f171906bb1a2ac82bf89d",
+      "wordCount": 66,
+      "tokenEstimate": 121,
+      "abstract": "> **Project ID:** 3ab7b26e-a27d-4200-8e5c-e52fd354a3ab"
+    },
+    {
+      "id": "_ai_notebook_ARCHITECTURE_md",
+      "title": "Canonical Architecture Reference",
+      "relativePath": ".ai/notebook/ARCHITECTURE.md",
+      "category": "architecture",
+      "sha256": "e6b5a64747309699cf64f7df8c495d06764323b1d3d1c6abbdd911ab75958ab5",
+      "wordCount": 117,
+      "tokenEstimate": 227,
+      "abstract": "Bản tóm lược kiến trúc chuẩn đặt tại `.ai/canonical/ARCHITECTURE.md`."
+    },
+    {
+      "id": "_ai_notebook_DECISIONS_md",
+      "title": "Architecture Decision Records",
+      "relativePath": ".ai/notebook/DECISIONS.md",
+      "category": "decision",
+      "sha256": "0f25434065df429f762731e08da12f184d6e6f6b89540d3863922fcb66dcc57a",
+      "wordCount": 73,
+      "tokenEstimate": 147,
+      "abstract": "*1 decision(s) exported for NotebookLM.*"
+    },
+    {
+      "id": "_ai_notebook_SOURCES_md",
+      "title": "Knowledge Sources",
+      "relativePath": ".ai/notebook/SOURCES.md",
+      "category": "research",
+      "sha256": "8860dcc467e0154938d0e737720340d9f4785f85671727116de4251da5bb83cb",
+      "wordCount": 75,
+      "tokenEstimate": 137,
+      "abstract": "Files included in this NotebookLM knowledge pack:"
+    },
+    {
+      "id": "_ai_canonical_DECISIONS_0001_init_architecture_md",
+      "title": "ADR 0001: Khởi tạo kiến trúc nền tảng AI PROJECT OS",
+      "relativePath": ".ai/canonical/DECISIONS/0001-init-architecture.md",
+      "category": "decision",
+      "sha256": "d31edbde070df4d0fc158b8e6ace85f4c36c5320a7a79c32a87b2c35c6fa578f",
+      "wordCount": 235,
+      "tokenEstimate": 330,
+      "abstract": "- **Ngày quyết định**: 2026-09-19"
+    }
+  ],
+  "excludedPatterns": [
+    "node_modules/**",
+    "dist/**",
+    "build/**",
+    "coverage/**",
+    "*.log",
+    "logs/**",
+    "tmp/**",
+    ".cache/**",
+    ".git/**",
+    ".env*",
+    "*.pem",
+    "*.key",
+    ".ai/handoff/**",
+    ".ai/state/**",
+    ".ai/tasks/**",
+    "*.tmp",
+    "*.bak",
+    "*.swp",
+    "*.ts",
+    "*.js",
+    "*.py",
+    "*.go"
+  ],
+  "firewallVerified": true
+}

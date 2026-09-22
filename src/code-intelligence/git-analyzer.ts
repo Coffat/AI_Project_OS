@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { GitChangedFiles } from '../core/types.js';
+import { SecurityGuard } from '../core/security-guard.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -90,12 +91,15 @@ export class GitAnalyzer {
       return { added: [], modified: [], deleted: [], renamed: [] };
     }
 
+    const safeBaseRef = SecurityGuard.validateGitRef(baseRef, 'baseRef');
+    const safeTargetRef = SecurityGuard.validateGitRef(targetRef, 'targetRef');
+
     const gitRoot = await this.getGitRoot(projectRoot);
 
     try {
       const { stdout } = await execFileAsync(
         'git',
-        ['diff', '--name-status', '-M', baseRef, targetRef],
+        ['diff', '--name-status', '-M', safeBaseRef, safeTargetRef],
         { cwd: projectRoot }
       );
 
@@ -280,7 +284,112 @@ export class GitAnalyzer {
     };
   }
 
+  public async getCurrentBranch(projectRoot: string): Promise<string | null> {
+    const isGit = await this.isGitRepository(projectRoot);
+    if (!isGit) return null;
+    try {
+      const { stdout } = await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+        cwd: projectRoot,
+      });
+      return stdout.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  public async getCurrentCommit(projectRoot: string): Promise<string | null> {
+    const isGit = await this.isGitRepository(projectRoot);
+    if (!isGit) return null;
+    try {
+      const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], {
+        cwd: projectRoot,
+      });
+      return stdout.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  public async getDiffSummary(projectRoot: string): Promise<string> {
+    const isGit = await this.isGitRepository(projectRoot);
+    if (!isGit) return '';
+    try {
+      const { stdout } = await execFileAsync('git', ['diff', '--stat'], {
+        cwd: projectRoot,
+      });
+      return stdout.trim();
+    } catch {
+      return '';
+    }
+  }
+
+  public async isWorkingTreeDirty(projectRoot: string): Promise<boolean> {
+    const changes = await this.getWorkingTreeChanges(projectRoot);
+    return (
+      changes.added.length > 0 ||
+      changes.modified.length > 0 ||
+      changes.deleted.length > 0 ||
+      changes.renamed.length > 0
+    );
+  }
+
+  /**
+   * Flags working tree changes that fall outside the expected task scope or allowed directories.
+   */
+  public async detectUnexpectedModifications(
+    projectRoot: string,
+    expectedScope: {
+      declaredFiles?: string[];
+      allowedDirectories?: string[];
+    } = {}
+  ): Promise<{
+    allChanged: string[];
+    expected: string[];
+    unexpected: string[];
+    isUnexpectedDetected: boolean;
+  }> {
+    const changes = await this.getWorkingTreeChanges(projectRoot);
+    const allChanged = [
+      ...changes.added,
+      ...changes.modified,
+      ...changes.deleted,
+      ...changes.renamed.map((r) => r.to),
+    ];
+
+    const declaredSet = new Set(
+      (expectedScope.declaredFiles || []).map((f) => path.normalize(f))
+    );
+    const allowedDirs = (expectedScope.allowedDirectories || []).map((d) =>
+      path.normalize(d)
+    );
+
+    const expected: string[] = [];
+    const unexpected: string[] = [];
+
+    for (const changed of allChanged) {
+      const normalized = path.normalize(changed);
+      const isDirectlyDeclared = declaredSet.has(normalized);
+      const isInAllowedDir = allowedDirs.some(
+        (dir) => dir !== '.' && normalized.startsWith(dir)
+      );
+
+      if (isDirectlyDeclared || isInAllowedDir) {
+        expected.push(changed);
+      } else {
+        unexpected.push(changed);
+      }
+    }
+
+    return {
+      allChanged,
+      expected,
+      unexpected,
+      isUnexpectedDetected: unexpected.length > 0,
+    };
+  }
+
   private cleanPath(p: string): string {
     return p.replace(/^"|"$/g, '').trim();
   }
 }
+

@@ -9,3 +9,6 @@ export * from './graph.repository.js';
 export * from './event.repository.js';
 export * from './validation.repository.js';
 export * from './agent-session.repository.js';
+export * from './obsidian-ledger.repository.js';
+export * from './proposal.repository.js';
+export * from './execution-session.repository.js';

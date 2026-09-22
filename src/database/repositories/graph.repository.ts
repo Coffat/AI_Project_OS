@@ -35,7 +35,7 @@ export interface CreateSymbolParams {
 export interface CreateNodeParams {
   projectId: string;
   entityType: GraphEntityType;
-  entityId: string;
+  entityId?: string;
   label: string;
   name?: string;
   path?: string;
@@ -43,6 +43,7 @@ export interface CreateNodeParams {
   lineEnd?: number;
   metadata?: Record<string, unknown>;
 }
+
 
 export interface CreateEdgeParams {
   projectId: string;
@@ -200,8 +201,13 @@ export class GraphRepository extends BaseRepository {
 
   // --- Graph Nodes & Edges ---
   public addNode(params: CreateNodeParams): GraphNode {
-    const existing = this.findNodeByEntity(params.projectId, params.entityType, params.entityId);
+    const entityId =
+      params.entityId ||
+      (params.path && params.name ? `${params.path}:${params.name}` : params.name || params.path || params.label);
+    const existing = this.findNodeByEntity(params.projectId, params.entityType, entityId);
     const now = Date.now();
+
+
 
     if (existing) {
       const stmt = this.db.prepare(`
@@ -233,8 +239,9 @@ export class GraphRepository extends BaseRepository {
       id: randomUUID(),
       projectId: params.projectId,
       entityType: params.entityType,
-      entityId: params.entityId,
+      entityId,
       label: params.label,
+
       name: params.name,
       path: params.path,
       lineStart: params.lineStart,
@@ -690,7 +697,12 @@ export class GraphRepository extends BaseRepository {
     return rows.map((r) => this.mapRowToEdge(r));
   }
 
-  public deleteSymbolsByFileId(fileId: string): void {
+  public deleteEdgesBySource(sourceNodeId: string): void {
+    const delEdges = this.db.prepare('DELETE FROM graph_edges WHERE source_node_id = ?');
+    delEdges.run(sourceNodeId);
+  }
+
+  public deleteSymbolsByFileId(fileId: string, projectId?: string, filePath?: string): void {
     const delFts = this.db.prepare(`
       DELETE FROM fts_symbols WHERE symbol_id IN (SELECT id FROM symbols WHERE file_id = ?)
     `);
@@ -698,6 +710,30 @@ export class GraphRepository extends BaseRepository {
 
     const delSymbols = this.db.prepare('DELETE FROM symbols WHERE file_id = ?');
     delSymbols.run(fileId);
+
+    // Clean corresponding symbol nodes in graph_nodes to maintain graph idempotency
+    let projId = projectId;
+    let fPath = filePath;
+    if (!projId || !fPath) {
+      const fileRow = this.db.prepare('SELECT project_id, path FROM files WHERE id = ?').get(fileId) as
+        | { project_id: string; path: string }
+        | undefined;
+      if (fileRow) {
+        projId = projId ?? fileRow.project_id;
+        fPath = fPath ?? fileRow.path;
+      }
+    }
+
+    if (projId && fPath) {
+      const symbolNodes = this.db.prepare(
+        "SELECT id FROM graph_nodes WHERE project_id = ? AND path = ? AND entity_type = 'symbol'"
+      ).all(projId, fPath) as Array<{ id: string }>;
+
+      for (const node of symbolNodes) {
+        this.db.prepare('DELETE FROM graph_edges WHERE source_node_id = ? OR target_node_id = ?').run(node.id, node.id);
+        this.db.prepare('DELETE FROM graph_nodes WHERE id = ?').run(node.id);
+      }
+    }
   }
 
   public deleteFileGraph(projectId: string, filePath: string): void {

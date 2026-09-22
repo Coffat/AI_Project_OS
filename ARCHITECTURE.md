@@ -207,3 +207,55 @@ MCP Server đóng vai trò là "Cổng kết nối" cho các AI agent với hệ
 - **Tái lập chỉ mục (Re-indexing)**: SQLite hoàn toàn có thể xóa đi và xây lại (`ai-os reindex`) bất cứ lúc nào từ mã nguồn Git và các tệp `.ai/canonical/*.md`.
 - **Obsidian Vault Friendly**: Mọi tệp trong `.ai/` đều là chuẩn Markdown GitHub Flavored với YAML Frontmatter và tương thích hoàn toàn với Obsidian Graph View.
 - **Tiến trình chuyển đổi Rust**: Khi khối lượng phân tích mã nguồn (AST parsing, Call Graph traversal) trên các repo hàng trăm nghìn dòng code đòi hỏi hiệu năng CPU cao, các subroutines của `code-intelligence` và `graph` có thể được chuyển sang Rust native crate được gọi qua NAPI-RS hoặc Tauri Core mà không làm biến đổi domain API của TypeScript.
+
+---
+
+## 6. Token Optimization Engine (Hierarchical Context L0–L4)
+
+Hệ thống context engine giải quyết vấn đề token bloat mà không làm mất thông tin quan trọng thông qua 4 thành phần chính:
+1. **TokenBudgetManager**: Thực thi ngân sách token nghiêm ngặt, cắt giảm các tầng context vượt quá giới hạn và ghi nhận tỷ lệ nén (`compression ratio`).
+2. **ContextDeduplicator**: Phát hiện và loại bỏ thông tin trùng lặp giữa tài liệu kiến trúc, ADRs và code comments. Nếu một tài liệu canonical đã phản ánh đầy đủ ràng buộc, các bản sao trích dẫn sẽ bị loại bỏ kèm lý do giải trình (`reason excluded`).
+3. **ContextPrioritizer**: Phân loại mức độ ưu tiên theo tầng:
+   - **L0 (Task Objective)**: Mục tiêu nhiệm vụ, tiêu chí hoàn thành, ràng buộc cốt lõi (luôn tải).
+   - **L1 (Session Continuity)**: Bước hiện tại, các rào cản (`blockers`), hành động kế tiếp (`next action`).
+   - **L2 (Graph Locality)**: Các tệp, biểu tượng (`symbols`), quyết định trực tiếp liên quan đến task.
+   - **L3 (Architecture & Constraints)**: Các quy tắc kiến trúc tầng, ràng buộc bảo mật, checklist kiểm thử.
+   - **L4 (Broader Project Knowledge)**: Tri thức toàn diện của dự án (chỉ nạp khi ngân sách cho phép).
+4. **ContextEstimator**: Ước lượng token chính xác bằng thuật toán Heuristic/BPE mà không tiêu tốn API call đến LLM ngoài.
+
+---
+
+## 7. Security Hardening & Zero-Trust Boundary
+
+AI Project OS áp dụng mô hình phòng thủ theo chiều sâu (Defense-in-Depth):
+- **Phân tách Rõ rệt giữa SYSTEM INSTRUCTIONS và UNTRUSTED DATA**:
+  - Tệp Markdown trong repository (`README.md`, PR comments, research proposals từ NotebookLM) được phân loại là **Dữ liệu không tin cậy (Untrusted Data)**.
+  - Tuyệt đối không để nội dung tệp repository đóng vai trò hướng dẫn thực thi (`System Prompt Hijack`). Mọi đầu vào từ repo được escape và bao bọc trong data delimiters an toàn.
+- **AST Parsing thay thế Dynamic Shell Evaluation**: Toàn bộ thao tác phân tích mã nguồn sử dụng Babel parser thuần túy, loại bỏ hoàn toàn nguy cơ Command Injection khi duyệt repo.
+- **Bảo vệ Hệ thống Tệp (Filesystem Guard)**: Ngăn chặn triệt để Path Traversal (các mẫu `../`, symlink attacks) thông qua hàm chuẩn hóa `path.resolve` và đối chiếu tiền tố `projectRoot`.
+- **Zero-Secret Leakage**: Tự động nhận diện và che giấu (redact) các secret key, token GitHub/OpenAI, thông tin xác thực nhạy cảm trong logs, handoff manifests và error dumps.
+
+---
+
+## 8. Production Readiness & System Doctor
+
+Hệ thống cung cấp module tự chẩn đoán và khắc phục sự cố tích hợp:
+- **`DoctorService` (`ai-project-os doctor`)**:
+  - Kiểm tra toàn vẹn cơ sở dữ liệu (`PRAGMA integrity_check`, `foreign_key_check`).
+  - Kiểm tra trạng thái thư mục hệ thống `.ai/`.
+  - Phát hiện các liên kết mồ côi trong đồ thị phụ thuộc (`orphaned edges`) và các phiên làm việc bị treo (`stale sessions`).
+  - Kiểm tra tính nhất quán giữa biên bản bàn giao (`CURRENT.json`) và cây Git làm việc.
+- **Tự động Khắc phục (`ai-project-os repair`)**: Tái tạo các thư mục cấu trúc bị thiếu, dọn sạch orphaned edges, chuyển trạng thái session chết sang `ended`, và checkpoint WAL.
+- **Sao lưu Không Khóa (Zero-Lock Atomic Backup)**: Sử dụng lệnh SQLite chuẩn `VACUUM INTO 'target.sqlite'` kết hợp manifest SHA-256 để tạo bản snapshot point-in-time mà không làm nghẽn tiến trình đọc/ghi đồng thời.
+
+---
+
+## 9. 7 Bất biến Vận hành Cốt lõi (System Invariants)
+
+1. **Task Entity Invariant**: Một nhiệm vụ luôn duy trì duy nhất một `task_id` xuyên suốt mọi phiên làm việc của các agent khác nhau.
+2. **Session Continuity Invariant**: Mỗi agent bắt đầu phiên đều được cấp một `session_id` độc lập và được liên kết tuần tự vào lịch sử task.
+3. **Uncommitted Diff Awareness**: Agent tiếp theo tiếp quản cùng một cây thư mục làm việc Git luôn nhận được bản tóm tắt chính xác các thay đổi chưa commit của agent trước.
+4. **Validation Gate Invariant**: Không một task nào được chuyển sang trạng thái `done` nếu các cổng kiểm tra (unit tests, types, linter) chưa vượt qua.
+5. **Knowledge Isolation Invariant**: Đề xuất từ nguồn bên ngoài (như NotebookLM) chỉ được phép lưu vào `.ai/proposals/` và không bao giờ tự động trở thành chỉ dẫn thực thi nếu chưa qua con người phê duyệt.
+6. **Granular Memory Invariant**: Bộ biên dịch bộ nhớ chỉ cập nhật đúng các tài liệu tri thức liên quan trực tiếp đến task đã hoàn thành.
+7. **Zero External Dependency**: Lõi điều phối vận hành 100% cục bộ trên Node.js và SQLite, không phụ thuộc vào internet, docker daemon hay cloud storage ngoài.

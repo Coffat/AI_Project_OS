@@ -15,6 +15,7 @@ import { TaskStateMachine } from '../../tasks/task-state-machine.js';
 import { randomUUID } from 'node:crypto';
 
 export interface CreateTaskParams {
+  id?: string;
   projectId: string;
   title: string;
   goal?: string;
@@ -29,6 +30,7 @@ export interface UpdateTaskParams {
   goal?: string;
   description?: string;
   priority?: TaskPriority;
+  status?: TaskStatus;
   currentStep?: string;
   assignedAgent?: string;
   expectedVersion?: number;
@@ -42,7 +44,7 @@ export class TaskRepository extends BaseRepository {
 
     const now = Date.now();
     const task: Task = {
-      id: randomUUID(),
+      id: params.id ?? randomUUID(),
       projectId: params.projectId,
       title: params.title.trim(),
       goal: params.goal?.trim() || params.title.trim(),
@@ -183,12 +185,21 @@ export class TaskRepository extends BaseRepository {
     const goal = updates.goal !== undefined ? updates.goal.trim() : current.goal;
     const description = updates.description !== undefined ? updates.description?.trim() : current.description;
     const priority = updates.priority !== undefined ? updates.priority : current.priority;
+    const status = updates.status !== undefined ? updates.status : current.status;
     const currentStep = updates.currentStep !== undefined ? updates.currentStep.trim() : current.currentStep;
     const assignedAgent = updates.assignedAgent !== undefined ? updates.assignedAgent?.trim() : current.assignedAgent;
 
+    let startedAt = current.startedAt;
+    let completedAt = current.completedAt;
+    if (status === 'in_progress' && !startedAt) {
+      startedAt = now;
+    } else if (status === 'done' && !completedAt) {
+      completedAt = now;
+    }
+
     const stmt = this.db.prepare(`
       UPDATE tasks
-      SET title = ?, goal = ?, description = ?, priority = ?, current_step = ?, assigned_agent = ?, version = ?, updated_at = ?
+      SET title = ?, goal = ?, description = ?, priority = ?, status = ?, started_at = ?, completed_at = ?, current_step = ?, assigned_agent = ?, version = ?, updated_at = ?
       WHERE id = ? AND version = ?
     `);
 
@@ -197,6 +208,9 @@ export class TaskRepository extends BaseRepository {
       goal ?? null,
       description ?? null,
       priority,
+      status,
+      startedAt ?? null,
+      completedAt ?? null,
       currentStep ?? null,
       assignedAgent ?? null,
       nextVersion,
@@ -215,6 +229,9 @@ export class TaskRepository extends BaseRepository {
       goal,
       description,
       priority,
+      status,
+      startedAt,
+      completedAt,
       currentStep,
       assignedAgent,
       version: nextVersion,

@@ -23,6 +23,8 @@ export interface ProjectInfo {
   updatedAt: number;
 }
 
+export type Project = ProjectInfo;
+
 export interface Task {
   id: string;
   projectId: string;
@@ -188,6 +190,84 @@ export interface MemoryChunk {
   tokenCount: number;
   metadataJson?: string;
   createdAt: number;
+}
+
+// --- Incremental Memory Layers & Events (Phase 5) ---
+export type MemoryLayer =
+  | 'project'
+  | 'architecture'
+  | 'decision'
+  | 'constraint'
+  | 'task'
+  | 'research'
+  | 'handoff';
+
+export type MemoryEventType =
+  | 'FILE_MODIFIED'
+  | 'FILE_ADDED'
+  | 'FILE_DELETED'
+  | 'FILE_RENAMED'
+  | 'SYMBOL_ADDED'
+  | 'SYMBOL_REMOVED'
+  | 'SYMBOL_MODIFIED'
+  | 'DEPENDENCY_CHANGED'
+  | 'DECISION_CREATED'
+  | 'DECISION_UPDATED'
+  | 'CONSTRAINT_CHANGED'
+  | 'TASK_COMPLETED'
+  | 'LESSON_RECORDED'
+  | 'HANDOFF_SUBMITTED';
+
+export interface MemoryEvent {
+  eventId: string;
+  type: MemoryEventType;
+  timestamp: number;
+  source: string;
+  entity: string;
+  before: unknown;
+  after: unknown;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SemanticExtractionRequest {
+  id: string;
+  projectId: string;
+  reason: string;
+  diffSummary: string;
+  suggestedTargetLayer: MemoryLayer;
+  entityIdentifier?: string;
+  status: 'pending' | 'completed' | 'skipped';
+  createdAt: number;
+}
+
+export interface MemoryDiffResult {
+  events: MemoryEvent[];
+  affectedFiles: string[];
+  affectedSymbols: string[];
+  affectedLayers: MemoryLayer[];
+  semanticExtractionRequired: boolean;
+  semanticReasons: string[];
+}
+
+export interface MemoryValidationReport {
+  isValid: boolean;
+  totalDocuments: number;
+  totalChunks: number;
+  canonicalFilesChecked: Array<{ path: string; exists: boolean; validMarkdown: boolean }>;
+  duplicateKeys: string[];
+  desynchronizedFiles: string[];
+  details: string[];
+}
+
+export interface MemoryCompilationResult {
+  projectId: string;
+  durationMs: number;
+  changedFiles: GitChangedFiles;
+  eventsGenerated: number;
+  layersUpdated: MemoryLayer[];
+  canonicalFilesUpdated: string[];
+  semanticRequestsCreated: number;
+  validation: MemoryValidationReport;
 }
 
 export type MemoryCategory = 'CONSTITUTION' | 'ARCHITECTURE' | 'CONSTRAINT' | 'DECISION' | 'LESSON';
@@ -487,8 +567,20 @@ export interface ProposalRecord {
 }
 
 // --- Validation Runs ---
-export type ValidationType = 'acceptance' | 'schema' | 'security' | 'test';
-export type ValidationRunStatus = 'passed' | 'failed' | 'warning';
+export type ValidationType =
+  | 'acceptance'
+  | 'schema'
+  | 'security'
+  | 'test'
+  | 'lint'
+  | 'typecheck'
+  | 'build'
+  | 'git_diff'
+  | 'memory_update'
+  | 'architecture_guard'
+  | 'pipeline';
+
+export type ValidationRunStatus = 'passed' | 'failed' | 'stale' | 'skipped' | 'warning';
 
 export interface ValidationRunRecord {
   id: string;
@@ -496,6 +588,11 @@ export interface ValidationRunRecord {
   taskId?: string;
   validatorType: ValidationType;
   status: ValidationRunStatus;
+  command?: string;
+  exitCode?: number;
+  startedAt?: number;
+  finishedAt?: number;
+  affectedFiles?: string[];
   resultsJson: string;
   runBy: string;
   createdAt: number;
@@ -515,8 +612,134 @@ export interface AgentSessionRecord {
   status: AgentSessionStatus;
 }
 
-// --- Context Pack ---
+// --- Context Pack & Phase 6 Context Engine ---
+
+export interface RelevantFileItem {
+  path: string;
+  relevanceScore: number;
+  reason: string;
+  snippet?: string;
+  isModified?: boolean;
+  isDependency?: boolean;
+  sizeBytes?: number;
+}
+
+export interface RelevantSymbolItem {
+  name: string;
+  kind: string;
+  filePath: string;
+  lineStart?: number;
+  lineEnd?: number;
+  signature?: string;
+  docstring?: string;
+  snippet?: string;
+  relevanceScore?: number;
+}
+
+export interface RelevantDecisionItem {
+  id: string;
+  title: string;
+  status: string;
+  summary?: string;
+  rationale?: string;
+  filePath?: string;
+  relevanceScore?: number;
+}
+
+export interface RelevantConstraintItem {
+  id: string;
+  title: string;
+  rule: string;
+  category?: string;
+  severity?: string;
+  relevanceScore?: number;
+}
+
+export interface RelevantTestItem {
+  filePath: string;
+  targetFile?: string;
+  testNames?: string[];
+  relevanceScore?: number;
+}
+
+export interface RelevantArchitectureItem {
+  subsystem?: string;
+  summary: string;
+  rules?: string[];
+  relevanceScore?: number;
+}
+
+export interface ContextEntityReference {
+  id: string;
+  type: 'task' | 'file' | 'symbol' | 'decision' | 'constraint' | 'test' | 'architecture' | 'handoff' | 'general';
+  tokens: number;
+  score: number;
+  reason?: string;
+}
+
+export type ContextLevel = 'L0' | 'L1' | 'L2' | 'L3' | 'L4';
+
+export interface ExcludedContextItem {
+  id: string;
+  type: string;
+  level?: ContextLevel;
+  reason: string;
+  tokens?: number;
+  coveredBy?: string;
+}
+
+export interface ContextExclusionReference extends ContextEntityReference {
+  dropReason: string;
+}
+
+export interface ContextReasoningMetadata {
+  tokenBudget: number;
+  totalCandidates: number;
+  includedCount: number;
+  excludedCount: number;
+  budgetUtilizationPercent: number;
+  rankingStrategy: string;
+  scoreBreakdown?: Record<string, number>;
+  compressionApplied?: boolean;
+  // Phase 17 Token Optimization Engine Fields
+  totalProjectEstimatedTokens?: number;
+  selectedContextTokens?: number;
+  compressionRatio?: number;
+  compressionPercentage?: string;
+  compressionFactor?: string;
+  loadedLevels?: ContextLevel[];
+  deduplicationSavingsTokens?: number;
+}
+
 export interface ContextPack {
+  // Primary Phase 6 Structure
+  task?: Task;
+  objective?: string;
+  current_state?: {
+    status: string;
+    phase?: string;
+    currentStep?: string;
+    blockers?: string[];
+  };
+  relevant_files?: RelevantFileItem[];
+  relevant_symbols?: RelevantSymbolItem[];
+  relevant_decisions?: RelevantDecisionItem[];
+  relevant_constraints?: RelevantConstraintItem[];
+  relevant_tests?: RelevantTestItem[];
+  relevant_handoff?: HandoffRecord | null;
+  relevant_architecture?: RelevantArchitectureItem[];
+  next_action?: string;
+
+  // Phase 16: Anti-Bloat Pre-Implementation Guidance
+  existing_abstractions?: Array<{ name: string; kind: string; filePath: string; signature?: string; description?: string }>;
+  existing_services?: Array<{ name: string; filePath: string; methods: string[] }>;
+  existing_utilities?: Array<{ name: string; filePath: string; functions: string[] }>;
+  existing_dependencies?: Array<{ name: string; version: string; isDev: boolean; category?: string; description?: string }>;
+
+  // Phase 17: Token Optimization Level & Metrics
+  loadedLevels?: ContextLevel[];
+
+  // Backward compatibility fields
   taskId: string;
   taskTitle: string;
   constitutionRules: string[];
@@ -532,3 +755,390 @@ export interface ContextPack {
   tokenBudget: number;
   estimatedTokens: number;
 }
+
+export interface GetContextResult {
+  context: string;
+  token_estimate: number;
+  included_entities: ContextEntityReference[];
+  excluded_entities: ContextExclusionReference[];
+  reasoning_metadata: ContextReasoningMetadata;
+  pack: ContextPack;
+  // Phase 17 Token Optimization Engine Reports
+  total_project_tokens?: number;
+  selected_context_tokens?: number;
+  compression_ratio?: number;
+  loaded_levels?: ContextLevel[];
+  excluded_context?: ExcludedContextItem[];
+}
+
+export interface ContextOptions {
+  projectId?: string;
+  budget?: number;
+  includeGeneralInfo?: boolean;
+  maxGraphDepth?: number;
+  allowCompression?: boolean;
+  maxLevel?: ContextLevel;
+  enableDeduplication?: boolean;
+  enableSemanticFallback?: boolean;
+}
+
+// --- Phase 7: Handoff Engine ---
+
+export interface HandoffValidationState {
+  status: 'passed' | 'failed' | 'pending' | 'stale';
+  timestamp?: number;
+  lastTestedCommit?: string;
+  testSuite?: string;
+  details?: string;
+}
+
+export interface HandoffGitState {
+  branch?: string;
+  commitHash?: string;
+  isDirty?: boolean;
+  diffSummary?: string;
+  modifiedFiles?: string[];
+  stagedFiles?: string[];
+  untrackedFiles?: string[];
+}
+
+export interface HandoffSnapshotData {
+  task_id: string;
+  status: string;
+  goal: string;
+  current_step: string;
+  completed: string[];
+  remaining: string[];
+  modified_files: string[];
+  modified_symbols?: string[];
+  decisions: string[];
+  blockers: string[];
+  errors?: string[];
+  tests: string[];
+  validation?: HandoffValidationState;
+  git: HandoffGitState;
+  next_action: string;
+  created_at: number;
+  agent_identity: string;
+}
+
+export type HandoffConsistencyWarningCode =
+  | 'FILE_NOT_MODIFIED_IN_GIT'
+  | 'TESTS_STALE_CODE_CHANGED'
+  | 'GIT_STATE_MISMATCH'
+  | 'STEP_MISMATCH'
+  | 'GENERAL_WARNING';
+
+export interface HandoffConsistencyWarning {
+  code: HandoffConsistencyWarningCode;
+  message: string;
+  severity: 'warning' | 'error' | 'info';
+  file?: string;
+}
+
+export interface HandoffConsistencyReport {
+  isConsistent: boolean;
+  validationStale: boolean;
+  gitMismatch: boolean;
+  warnings: HandoffConsistencyWarning[];
+  checkedAt: number;
+}
+
+export interface TaskResumePack {
+  task: Task;
+  objective: string;
+  current_state: string;
+  current_step: string;
+  completed_steps: string[];
+  remaining_steps: string[];
+  modified_files: string[];
+  blockers: string[];
+  relevant_decisions: RelevantDecisionItem[];
+  relevant_context: GetContextResult;
+  next_action: string;
+  consistency: HandoffConsistencyReport;
+  snapshot: HandoffSnapshotData;
+}
+
+export interface CreateHandoffOptions {
+  taskId: string;
+  projectId?: string;
+  agentIdentity: string;
+  completedWork?: string;
+  nextAction?: string;
+  currentStep?: string;
+  currentFile?: string;
+  blockers?: string[];
+  errors?: string[];
+  tests?: string[];
+  validation?: HandoffValidationState;
+}
+
+export interface ResumeTaskOptions {
+  projectId?: string;
+  agentIdentity?: string;
+  contextBudget?: number;
+  skipConsistencyCheck?: boolean;
+}
+
+// --- Phase 8: Validation Engine ---
+
+export type ValidationStepType =
+  | 'tests'
+  | 'lint'
+  | 'typecheck'
+  | 'build'
+  | 'git_diff'
+  | 'memory_update'
+  | 'architecture_guard';
+
+export interface CommandRunResult {
+  command: string;
+  started_at: number;
+  finished_at: number;
+  exit_code: number;
+  stdout: string;
+  stderr: string;
+}
+
+export interface ValidationStepResult {
+  step: ValidationStepType;
+  command: string;
+  started_at: number;
+  finished_at: number;
+  exit_code: number;
+  status: ValidationRunStatus;
+  stdout: string;
+  stderr: string;
+  affected_files: string[];
+  error?: string;
+}
+
+export interface TaskValidationBlocker {
+  command: string;
+  error: string;
+  affected_files: string[];
+  last_attempt: number;
+  next_hypothesis: string;
+}
+
+export interface TaskValidationResult {
+  task_id: string;
+  success: boolean;
+  status: 'passed' | 'failed' | 'stale';
+  runs: ValidationStepResult[];
+  blocker?: TaskValidationBlocker;
+  stale_detected?: boolean;
+  stale_reason?: string;
+  completed_at: number;
+}
+
+export interface ValidationRunOptions {
+  taskId?: string;
+  projectId?: string;
+  command?: string;
+  affectedFiles?: string[];
+  agentIdentity?: string;
+}
+
+export interface ValidateTaskOptions {
+  projectId?: string;
+  agentIdentity?: string;
+  skipBuild?: boolean;
+  skipLint?: boolean;
+  skipTypecheck?: boolean;
+  skipArchitectureGuard?: boolean;
+  strictGuard?: boolean;
+  testCommand?: string;
+  lintCommand?: string;
+  typecheckCommand?: string;
+  buildCommand?: string;
+  autoCompleteOnPass?: boolean;
+  updateMemoryOnPass?: boolean;
+}
+
+// --- Phase 9: Obsidian Integration ---
+
+export type ObsidianEntityType =
+  | 'project'
+  | 'architecture'
+  | 'constraint'
+  | 'decision'
+  | 'task'
+  | 'research'
+  | 'index';
+
+export type ObsidianSyncSource = 'sqlite_to_markdown' | 'markdown_to_sqlite';
+
+export interface ObsidianSyncRecord {
+  id: string;
+  projectId: string;
+  entityType: ObsidianEntityType;
+  entityId: string;
+  filePath: string;
+  lastSyncedHash: string;
+  lastSyncedMtime: number;
+  lastSyncedAt: number;
+  syncSource: ObsidianSyncSource;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ObsidianFrontmatter {
+  id?: string;
+  title?: string;
+  type?: ObsidianEntityType;
+  status?: string;
+  priority?: string;
+  assigned_agent?: string;
+  tags?: string[];
+  created_at?: string | number;
+  updated_at?: string | number;
+  [key: string]: unknown;
+}
+
+export interface ObsidianConflictRecord {
+  filePath: string;
+  entityType: ObsidianEntityType;
+  entityId: string;
+  sqliteHash: string;
+  markdownHash: string;
+  ledgerHash: string;
+  conflictFilePath: string;
+  detectedAt: number;
+  message: string;
+}
+
+export interface ObsidianSyncOptions {
+  projectId?: string;
+  dryRun?: boolean;
+  force?: boolean;
+  direction?: 'bidirectional' | 'export_only' | 'import_only';
+}
+
+export interface ObsidianSyncResult {
+  projectId: string;
+  syncedFilesCount: number;
+  exportedFiles: string[];
+  importedFiles: string[];
+  unchangedFiles: string[];
+  conflicts: ObsidianConflictRecord[];
+  warnings: string[];
+  timestamp: number;
+}
+
+// --- PHASE 10: NOTEBOOKLM KNOWLEDGE BRIDGE TYPES ---
+
+export type NotebookSourceCategory =
+  | 'canonical_project'
+  | 'architecture'
+  | 'decision'
+  | 'constraint'
+  | 'research'
+  | 'specification';
+
+export interface NotebookSourceEntry {
+  id: string;
+  title: string;
+  relativePath: string;
+  category: NotebookSourceCategory;
+  sha256: string;
+  wordCount: number;
+  tokenEstimate: number;
+  abstract?: string;
+}
+
+export interface NotebookManifest {
+  projectId: string;
+  generatedAt: number;
+  version: string;
+  totalSources: number;
+  totalWords: number;
+  totalTokens: number;
+  sources: NotebookSourceEntry[];
+  excludedPatterns: string[];
+  firewallVerified: boolean;
+}
+
+export interface NotebookExportOptions {
+  projectId?: string;
+  outDir?: string;
+  selectedDecisions?: string[];
+  includeResearch?: boolean;
+  includeSpecs?: boolean;
+}
+
+export interface NotebookExportResult {
+  projectId: string;
+  outDir: string;
+  exportedFiles: string[];
+  manifest: NotebookManifest;
+  warnings: string[];
+  timestamp: number;
+}
+
+export type ProposalConfidence = 'low' | 'medium' | 'high' | 'experimental';
+
+export interface ResearchProposal {
+  id: string;
+  projectId: string;
+  taskId?: string;
+  title: string;
+  question: string;
+  sources: string[];
+  findings: string;
+  proposedChanges: string;
+  confidence: ProposalConfidence;
+  openQuestions?: string[];
+  status: ProposalStatus;
+  reviewedBy?: string;
+  reviewComment?: string;
+  promotedDecisionId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ParsedProposalMarkdown {
+  id: string;
+  title: string;
+  question: string;
+  sources: string[];
+  findings: string;
+  proposedChanges: string;
+  confidence: ProposalConfidence;
+  openQuestions: string[];
+}
+
+// --- Phase 13: Execution Sessions ---
+export type ExecutionSessionStatus = 'active' | 'paused' | 'ended' | 'handoff';
+
+export interface ExecutionSessionRecord {
+  id: string; // session_id
+  projectId: string;
+  taskId?: string;
+  provider: string;
+  agent: string;
+  accountLabel?: string;
+  startedAt: number;
+  endedAt?: number;
+  status: ExecutionSessionStatus;
+  metadata?: Record<string, unknown>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// --- Phase 16: Architecture Guard & Anti-Bloat ---
+export type {
+  GuardSeverity,
+  ViolationCategory,
+  ArchitectureViolation,
+  ArchitectureGuardSummary,
+  ArchitectureGuardReport,
+  ArchitectureBoundaryRule,
+  DiscoveredAbstraction,
+  DiscoveredService,
+  DiscoveredUtility,
+  DiscoveredDependency,
+  PreImplementationContext,
+  GuardEvaluationOptions,
+} from '../guard/types.js';
